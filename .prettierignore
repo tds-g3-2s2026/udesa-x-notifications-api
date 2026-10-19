@@ -1,0 +1,12 @@
+node_modules
+dist
+coverage
+.git
+.agents/skills
+
+# Synced from udesa-x-platform. Reformatting them here would diverge from the
+# source and the next sync would revert it, so the lint would fail again.
+CLAUDE.md
+AGENTS.md
+.github/copilot-instructions.md
+.github/PULL_REQUEST_TEMPLATE.md

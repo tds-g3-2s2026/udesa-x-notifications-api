@@ -1,0 +1,73 @@
+name: udesa-x-notifications-api
+
+services:
+  notifications-api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: production
+    ports:
+      # 8000, 8001 and 8002 are already users-api's, posts-api's and the
+      # gateway's own host ports in their docker-compose.dev.yml.
+      - '127.0.0.1:8003:8000'
+    environment:
+      MONGODB_URL: mongodb://mongodb:27017/notifications
+      RABBITMQ_URL: amqp://notifications:notifications@rabbitmq:5672
+    # Only for the first start. After that the service rides out an outage of
+    # either one by itself: /healthcheck goes 503 and comes back.
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  # No source volume on purpose: mounting it would replace what the image
+  # carries and stop testing the real artifact.
+  tests:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: test
+    environment:
+      MONGODB_URL: mongodb://mongodb:27017/notifications-test
+      RABBITMQ_URL: amqp://notifications:notifications@rabbitmq:5672
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    # Without this it would start on every `docker compose up`.
+    profiles: ['test']
+
+  mongodb:
+    image: mongo:8
+    ports:
+      - '127.0.0.1:27017:27017'
+    healthcheck:
+      test: ['CMD', 'mongosh', '--quiet', '--eval', 'db.runCommand({ping:1}).ok']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    volumes:
+      - mongodb-data:/data/db
+
+  rabbitmq:
+    # The management plugin is the UI that shows the queues and bindings to the
+    # tutor (T-27): http://localhost:15672 with the user below.
+    image: rabbitmq:4-management-alpine
+    environment:
+      # Not guest: RabbitMQ only lets guest in over loopback, and the service
+      # connects from another container.
+      RABBITMQ_DEFAULT_USER: notifications
+      RABBITMQ_DEFAULT_PASS: notifications
+    ports:
+      - '127.0.0.1:5672:5672'
+      - '127.0.0.1:15672:15672'
+    healthcheck:
+      test: ['CMD', 'rabbitmq-diagnostics', '-q', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  mongodb-data:
