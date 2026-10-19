@@ -44,7 +44,7 @@ El cuerpo de `/healthcheck` tiene la misma forma que en `users-api` y `posts-api
 ```json
 {
   "status": "degraded",
-  "version": "0.1.0",
+  "version": "1.1.0",
   "dependencies": { "mongodb": "ok", "rabbitmq": "connect ECONNREFUSED 10.0.0.12:5672" }
 }
 ```
