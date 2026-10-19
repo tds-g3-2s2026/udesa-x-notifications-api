@@ -1,0 +1,41 @@
+{
+  "name": "notifications-api",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "bun run --watch src/index.ts",
+    "build": "tsc --noEmit",
+    "lint": "eslint . && prettier --check .",
+    "format": "prettier --write .",
+    "test": "vitest run",
+    "test:unit": "vitest run tests/unit",
+    "test:coverage": "vitest run --coverage",
+    "test:ci": "vitest run --coverage --reporter=default --reporter=junit",
+    "start": "bun run src/index.ts"
+  },
+  "dependencies": {
+    "@opentelemetry/api": "^1.9.1",
+    "@opentelemetry/api-logs": "^0.222.0",
+    "@opentelemetry/context-async-hooks": "^2.11.0",
+    "@opentelemetry/core": "^2.11.0",
+    "@opentelemetry/exporter-logs-otlp-proto": "^0.222.0",
+    "@opentelemetry/exporter-trace-otlp-proto": "^0.222.0",
+    "@opentelemetry/resources": "^2.11.0",
+    "@opentelemetry/sdk-logs": "^0.222.0",
+    "@opentelemetry/sdk-trace-base": "^2.11.0",
+    "amqplib": "^2.2",
+    "hono": "^4.6",
+    "mongodb": "^7.7"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.15",
+    "@types/bun": "^1.1",
+    "@vitest/coverage-istanbul": "^4.1",
+    "eslint": "^9.39",
+    "prettier": "^3.9",
+    "typescript": "^5.9",
+    "typescript-eslint": "^8.68",
+    "vitest": "^4.1"
+  }
+}
