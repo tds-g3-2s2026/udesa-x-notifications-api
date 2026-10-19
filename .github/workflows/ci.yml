@@ -5,7 +5,7 @@ on:
     branches: [main]
 jobs:
   ci:
-    uses: tds-g3-2s2026/udesa-x-platform/.github/workflows/ci-node.yml@main
+    uses: tds-g3-2s2026/udesa-x-platform/.github/workflows/ci-node.yml@fix-ci-node-mongodb-kernel
     secrets: inherit
     with:
       # ARQUITECTURA.md turns the gate on for the backend services in S3. Below
