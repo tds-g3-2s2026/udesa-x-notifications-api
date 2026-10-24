@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:udesa-x:eventos:user.registered.v1",
+  "title": "user.registered.v1",
+  "description": "Se creó una cuenta y hay que mandarle el link de verificación. Lo publica users-api; notifications-api manda el email.",
+  "type": "object",
+  "required": ["specversion", "id", "source", "type", "time", "data"],
+  "additionalProperties": false,
+  "properties": {
+    "specversion": { "const": "1.0" },
+    "id": {
+      "description": "Identificador único del evento. El consumidor lo usa para descartar repetidos.",
+      "type": "string",
+      "format": "uuid"
+    },
+    "source": { "const": "users-api" },
+    "type": { "const": "user.registered.v1" },
+    "time": {
+      "description": "Instante en que se creó la cuenta.",
+      "type": "string",
+      "format": "date-time"
+    },
+    "data": {
+      "type": "object",
+      "required": ["user_id", "email", "handle", "verification_url"],
+      "additionalProperties": false,
+      "properties": {
+        "user_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "email": {
+          "description": "Dirección normalizada a minúsculas, a la que va el link.",
+          "type": "string",
+          "format": "email"
+        },
+        "handle": {
+          "type": "string"
+        },
+        "verification_url": {
+          "description": "Link completo de verificación, con el token de un solo uso. Es un secreto hasta que vence: no se loguea.",
+          "type": "string",
+          "format": "uri"
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "specversion": "1.0",
+      "id": "0199f3a0-9e8d-7c6b-a5f4-e3d2c1b0a901",
+      "source": "users-api",
+      "type": "user.registered.v1",
+      "time": "2026-10-23T13:58:44Z",
+      "data": {
+        "user_id": "7a1d3c9b-2e4f-4a6b-8d0c-1f3e5a7b9c2d",
+        "email": "alumno@udesa.edu.ar",
+        "handle": "alumno",
+        "verification_url": "https://udesa-x.example/api/auth/verify?token=Zk3pQ9vX2mLr8sT1"
+      }
+    }
+  ]
+}
