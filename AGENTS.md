@@ -37,6 +37,10 @@ docker compose -f docker/docker-compose.dev.yml --profile test run --rm tests   
   tráfico sin reiniciarlo.
 - Los tests de `tests/integration/` corren contra MongoDB y RabbitMQ reales. En el CI los
   levanta `ci-node.yml` con `mongodb-y-rabbitmq: true`.
+- `contracts/events/` es una copia de `udesa-x-platform/docs/eventos/` con los eventos que
+  este servicio consume (ADR-017 de platform). No se edita acá: se cambia en platform y se
+  trae con su `scripts/sync-contracts.sh`. El job `Contratos de eventos al dia` del CI falla
+  si la copia difiere. Los tests del consumidor arman sus mensajes desde estos esquemas.
 - Documentación general del sistema: consultar `../udesa-x-platform/docs/` (`ARQUITECTURA.md`,
   `CONVENCIONES.md`, `PLANIFICACION.md`).
 
