@@ -26,12 +26,15 @@
     "@opentelemetry/sdk-trace-base": "^2.11.0",
     "amqplib": "^2.2",
     "hono": "^4.6",
-    "mongodb": "^7.7"
+    "mongodb": "^7.7",
+    "resend": "^6.34.1"
   },
   "devDependencies": {
     "@eslint/js": "^9.15",
     "@types/bun": "^1.1",
     "@vitest/coverage-istanbul": "^4.1",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
     "eslint": "^9.39",
     "prettier": "^3.9",
     "typescript": "^5.9",
