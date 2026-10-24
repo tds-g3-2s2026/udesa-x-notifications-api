@@ -31,7 +31,14 @@ docker compose -f docker/docker-compose.dev.yml --profile test run --rm tests   
   saber de HTTP ni de la base) y `src/infrastructure/` (MongoDB, RabbitMQ, salud, telemetría).
 - `src/index.ts` es el único módulo que conoce las implementaciones concretas: abre las
   conexiones y se las pasa a `createApp`. Los tests arman la app con dobles por la misma puerta.
-- `MONGODB_URL` y `RABBITMQ_URL` son obligatorias: sin alguna, el proceso no arranca.
+- `MONGODB_URL` y `RABBITMQ_URL` son obligatorias: sin alguna, el proceso no arranca. Con
+  `EMAIL_PROVIDER=resend` también lo es `RESEND_API_KEY`; el default es `console`, que imprime el
+  mail en el log en vez de mandarlo.
+- Emails de cuenta: el consumidor (`src/infrastructure/event-consumer.ts`) declara el exchange
+  `udesa-x.events`, la cola `quorum` `notifications-api` y su DLX/DLQ en cada (re)conexión. El
+  handler (`src/app/email-events.ts`) es idempotente por el `id` del evento con un documento por
+  evento en `emails`; no guarda links, códigos ni cuerpos, y nunca los loguea (solo el adaptador de
+  consola). Detalle y semántica en el README.
 - Si RabbitMQ se cae, el servicio sigue vivo y se reconecta solo con backoff. Mientras tanto
   `/healthcheck` responde `503` y `/livez` sigue en `200`, para que Kubernetes lo saque del
   tráfico sin reiniciarlo.

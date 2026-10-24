@@ -1,6 +1,6 @@
 import type { EventEmitter } from 'node:events';
 
-import { connect } from 'amqplib';
+import { connect, type ChannelModel } from 'amqplib';
 
 import type { DependencyCheck } from './health';
 import { logEvent } from './telemetry';
@@ -52,6 +52,15 @@ export function trackConnection(connection: EventEmitter & { close(): Promise<vo
   };
 }
 
-export async function connectRabbitMQ(url: string): Promise<RabbitMQ> {
-  return trackConnection(await connect(url, { recovery: RECOVERY }));
+/**
+ * `setup` runs on every successful connection, the first one and each
+ * reconnection, with the fresh connection: where the topology and the
+ * consumers are declared again. If it throws the attempt counts as failed and
+ * recovery retries it.
+ */
+export async function connectRabbitMQ(
+  url: string,
+  setup?: (model: ChannelModel) => Promise<void>
+): Promise<RabbitMQ> {
+  return trackConnection(await connect(url, { recovery: { ...RECOVERY, setup } }));
 }

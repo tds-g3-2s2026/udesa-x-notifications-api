@@ -13,6 +13,11 @@ services:
     environment:
       MONGODB_URL: mongodb://mongodb:27017/notifications
       RABBITMQ_URL: amqp://notifications:notifications@rabbitmq:5672
+      # Emails are printed to the log, not sent. To send them for real, export
+      # EMAIL_PROVIDER=resend and RESEND_API_KEY before `docker compose up`.
+      EMAIL_PROVIDER: ${EMAIL_PROVIDER:-console}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      EMAIL_FROM: ${EMAIL_FROM:-}
     # Only for the first start. After that the service rides out an outage of
     # either one by itself: /healthcheck goes 503 and comes back.
     depends_on:
