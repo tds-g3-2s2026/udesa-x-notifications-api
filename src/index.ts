@@ -4,6 +4,7 @@ import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-proto';
 import { createApp } from './api/app';
 import { createEmailEventHandler } from './app/email-events';
 import { loadConfig } from './config';
+import { createDeviceTokenStore, deviceTokenCollection } from './infrastructure/device-token-store';
 import { createEmailSender } from './infrastructure/email-senders';
 import { createEmailStore, emailCollection } from './infrastructure/email-store';
 import { createEventConsumer } from './infrastructure/event-consumer';
@@ -35,7 +36,11 @@ const consumer = createEventConsumer(
 );
 const rabbitmq = await connectRabbitMQ(config.rabbitmqUrl, consumer.setup);
 
-const app = createApp({ healthChecks: [mongodbCheck(mongo), rabbitmq] });
+const app = createApp({
+  healthChecks: [mongodbCheck(mongo), rabbitmq],
+  auth: config.auth,
+  deviceTokens: createDeviceTokenStore(deviceTokenCollection(mongo)),
+});
 
 // Kubernetes sends SIGTERM before stopping the pod: the consumer finishes the
 // messages it holds, connections close cleanly and the last telemetry batches

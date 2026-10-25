@@ -1,20 +1,26 @@
 import { Hono } from 'hono';
 
 import { version } from '../../package.json';
+import type { DeviceTokenStore } from '../app/device-tokens';
+import type { AuthConfig } from '../config';
 import { buildReport, type DependencyCheck } from '../infrastructure/health';
 import { requestTelemetry } from '../infrastructure/telemetry';
+import { deviceTokenRoutes } from './device-tokens';
 import { notFound, onError } from './errors';
 
 export interface AppDependencies {
   /** What /healthcheck looks at: MongoDB and RabbitMQ in production. */
   healthChecks: DependencyCheck[];
+  /** How the routes under /api tell a real access token from a forged one. */
+  auth: AuthConfig;
+  deviceTokens: DeviceTokenStore;
 }
 
 /**
  * Builds the HTTP app from what index.ts hands it. Nothing in here knows a
  * concrete MongoDB or RabbitMQ client: the tests pass their own.
  */
-export function createApp({ healthChecks }: AppDependencies) {
+export function createApp({ healthChecks, auth, deviceTokens }: AppDependencies) {
   const app = new Hono();
 
   app.use(requestTelemetry);
@@ -30,6 +36,9 @@ export function createApp({ healthChecks }: AppDependencies) {
 
   // Liveness: no dependency, so a broker outage never restarts the pod.
   app.get('/livez', (c) => c.json({ status: 'ok' }));
+
+  // What the app calls, through the gateway's /api/notifications prefix.
+  app.route('/api/notifications', deviceTokenRoutes({ auth, store: deviceTokens }));
 
   return app;
 }

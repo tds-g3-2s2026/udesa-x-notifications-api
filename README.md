@@ -71,6 +71,17 @@ minutos. `posts-api` sí lo revisa (ADR-014); acá se dejó afuera mientras lo �
 es un token de dispositivo. Un token inválido responde `401` con `code: invalid-token`, igual
 que `users-api` y `posts-api`.
 
+| Ruta                                    | Body                 | Responde | Para qué                                           |
+| --------------------------------------- | -------------------- | -------- | -------------------------------------------------- |
+| `POST /api/notifications/device-tokens` | `{ "token": "..." }` | `204`    | Registra el token FCM del dispositivo (E4-H1 CA.3) |
+
+La app lo llama después de cada login, también cuando el token no cambió. La cuenta sale del
+access token, nunca del body. Se guarda en la colección `device_tokens`, un documento por token
+(`_id` es el token, con `account_id` y `updated_at`): registrarlo de nuevo actualiza la fecha, y
+si en ese dispositivo inicia sesión otra cuenta, el token pasa a ser de ella. Un body inválido
+(sin `token`, vacío, que no es texto o de más de 4096 caracteres) responde `422`
+`validation-failed` con el campo en `errors`.
+
 ## Configuración
 
 | Variable                      | Default                         | Para qué                                                                |

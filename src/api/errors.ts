@@ -1,7 +1,7 @@
 import type { Context, ErrorHandler, NotFoundHandler } from 'hono';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 
-import { ProblemError } from '../app/errors';
+import { ProblemError, type FieldError } from '../app/errors';
 import { currentTraceId, logEvent } from '../infrastructure/telemetry';
 
 // Same as users-api: without the charset a browser decodes the accents as Latin-1.
@@ -13,6 +13,7 @@ interface Problem {
   code: string;
   title: string;
   detail: string;
+  errors?: FieldError[];
 }
 
 function problemResponse(
@@ -28,6 +29,7 @@ function problemResponse(
     detail: problem.detail,
     instance: c.req.path,
     traceId,
+    ...(problem.errors ? { errors: problem.errors } : {}),
   };
   return c.body(JSON.stringify(body), problem.status as ContentfulStatusCode, {
     ...headers,
