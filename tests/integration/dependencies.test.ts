@@ -1,10 +1,10 @@
 import type { MongoClient } from 'mongodb';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
-import type { HealthReport } from '../../src/infrastructure/health';
-import { createApp } from '../../src/api/app';
+import type { DependencyCheck, HealthReport } from '../../src/infrastructure/health';
 import { createMongoClient, mongodbCheck } from '../../src/infrastructure/mongodb';
 import { connectRabbitMQ, type RabbitMQ } from '../../src/infrastructure/rabbitmq';
+import { buildApp } from '../support/app';
 
 // Against real MongoDB and RabbitMQ: docker/docker-compose.dev.yml locally,
 // ci-node.yml's `mongodb-y-rabbitmq` in the CI. Fails loudly when they are not
@@ -41,8 +41,8 @@ afterAll(async () => {
   await Promise.allSettled(opened.map((connection) => connection.close()));
 });
 
-async function healthcheck(checks: Parameters<typeof createApp>[0]['healthChecks']) {
-  const res = await createApp({ healthChecks: checks }).request('/healthcheck');
+async function healthcheck(checks: DependencyCheck[]) {
+  const res = await buildApp({ healthChecks: checks }).request('/healthcheck');
   return { status: res.status, body: (await res.json()) as HealthReport };
 }
 

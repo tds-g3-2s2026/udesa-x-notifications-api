@@ -3,8 +3,8 @@ import { InMemoryLogRecordExporter } from '@opentelemetry/sdk-logs';
 import { InMemorySpanExporter } from '@opentelemetry/sdk-trace-base';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { createApp } from '../../src/api/app';
 import { startTelemetry, type Telemetry } from '../../src/infrastructure/telemetry';
+import { buildApp } from '../support/app';
 
 const CALLER_TRACE_ID = '4bf92f3577b34da6a3ce929d0e0e4736';
 const CALLER_TRACEPARENT = `00-${CALLER_TRACE_ID}-00f067aa0ba902b7-01`;
@@ -13,7 +13,7 @@ const spans = new InMemorySpanExporter();
 const logRecords = new InMemoryLogRecordExporter();
 let telemetry: Telemetry;
 
-const app = createApp({ healthChecks: [] });
+const app = buildApp();
 app.get('/broken', () => {
   throw new Error('boom');
 });
