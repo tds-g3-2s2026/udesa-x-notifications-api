@@ -61,19 +61,31 @@ Toda respuesta de error usa Problem Details (RFC 9457) con `application/problem+
 formato de `ARQUITECTURA.md` en `udesa-x-platform`. Un error no previsto responde un `500`
 genérico: el detalle real va solo al log, con el mismo `traceId` que recibe el cliente.
 
+## API
+
+Lo que llama la app, a través del gateway: todo `/api/notifications` se rutea a este servicio.
+Cada ruta pide `Authorization: Bearer <access token>` de `users-api`. El servicio verifica la
+firma con `JWT_PUBLIC_KEY`, el vencimiento y que el emisor sea `JWT_ISSUER`, sin llamar a nadie.
+No revisa si la sesión fue cerrada: un token revocado sirve hasta que vence, como máximo 15
+minutos. `posts-api` sí lo revisa (ADR-014); acá se dejó afuera mientras lo único que se acepta
+es un token de dispositivo. Un token inválido responde `401` con `code: invalid-token`, igual
+que `users-api` y `posts-api`.
+
 ## Configuración
 
-| Variable                      | Default                         | Para qué                                                         |
-| ----------------------------- | ------------------------------- | ---------------------------------------------------------------- |
-| `MONGODB_URL`                 | sin definir, obligatoria        | URL de MongoDB, con la base en el path                           |
-| `RABBITMQ_URL`                | sin definir, obligatoria        | URL AMQP de RabbitMQ                                             |
-| `PORT`                        | `8000`                          | Puerto donde escucha el servicio                                 |
-| `EMAIL_PROVIDER`              | `console`                       | `console` imprime el mail en el log; `resend` lo manda (ADR-010) |
-| `RESEND_API_KEY`              | sin definir                     | Clave de Resend. Obligatoria con `EMAIL_PROVIDER=resend`         |
-| `EMAIL_FROM`                  | `UdeSA-X <no-reply@udesax.app>` | Remitente; el dominio `udesax.app` está verificado en Resend     |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | sin definir                     | Si está, manda trazas y logs por OTLP (ADR-013)                  |
+| Variable                      | Default                         | Para qué                                                                |
+| ----------------------------- | ------------------------------- | ----------------------------------------------------------------------- |
+| `MONGODB_URL`                 | sin definir, obligatoria        | URL de MongoDB, con la base en el path                                  |
+| `RABBITMQ_URL`                | sin definir, obligatoria        | URL AMQP de RabbitMQ                                                    |
+| `JWT_PUBLIC_KEY`              | sin definir, obligatoria        | Clave pública Ed25519 en PEM, la otra mitad de la que firma `users-api` |
+| `JWT_ISSUER`                  | `users-api`                     | Emisor que tienen que traer los access tokens                           |
+| `PORT`                        | `8000`                          | Puerto donde escucha el servicio                                        |
+| `EMAIL_PROVIDER`              | `console`                       | `console` imprime el mail en el log; `resend` lo manda (ADR-010)        |
+| `RESEND_API_KEY`              | sin definir                     | Clave de Resend. Obligatoria con `EMAIL_PROVIDER=resend`                |
+| `EMAIL_FROM`                  | `UdeSA-X <no-reply@udesax.app>` | Remitente; el dominio `udesax.app` está verificado en Resend            |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | sin definir                     | Si está, manda trazas y logs por OTLP (ADR-013)                         |
 
-Sin `MONGODB_URL` o `RABBITMQ_URL` el proceso no arranca y dice cuál falta. Con
+Sin `MONGODB_URL`, `RABBITMQ_URL` o `JWT_PUBLIC_KEY` el proceso no arranca y dice cuál falta. Con
 `EMAIL_PROVIDER=resend` y sin `RESEND_API_KEY` tampoco arranca: sin clave, cada mail fallaría
 recién con el primer evento. Un `EMAIL_PROVIDER` desconocido también lo frena.
 
