@@ -215,6 +215,7 @@ describe('email event handler', () => {
       ['is not JSON', 'not json {'],
       ['is not an object', '[1, 2]'],
       ['has no id', body({ ...valid(), id: undefined })],
+      ['has no type', body({ ...valid(), type: undefined })],
       ['has an unknown type', body({ ...valid(), type: 'user.deleted.v1' })],
       ['has no data', body({ ...valid(), data: undefined })],
       ['has no email', body({ ...valid(), data: { ...valid().data, email: undefined } })],
