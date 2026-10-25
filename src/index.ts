@@ -2,7 +2,11 @@ import { OTLPLogExporter } from '@opentelemetry/exporter-logs-otlp-proto';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-proto';
 
 import { createApp } from './api/app';
+import { createEmailEventHandler } from './app/email-events';
 import { loadConfig } from './config';
+import { createEmailSender } from './infrastructure/email-senders';
+import { createEmailStore, emailCollection } from './infrastructure/email-store';
+import { createEventConsumer } from './infrastructure/event-consumer';
 import { createMongoClient, mongodbCheck } from './infrastructure/mongodb';
 import { connectRabbitMQ } from './infrastructure/rabbitmq';
 import { startTelemetry } from './infrastructure/telemetry';
@@ -20,13 +24,24 @@ const telemetry = startTelemetry(
 );
 
 const mongo = createMongoClient(config.mongodbUrl);
-const rabbitmq = await connectRabbitMQ(config.rabbitmqUrl);
+
+// Starts consuming as soon as RabbitMQ is reachable, and again after every
+// reconnection.
+const consumer = createEventConsumer(
+  createEmailEventHandler({
+    store: createEmailStore(emailCollection(mongo)),
+    sender: createEmailSender(config.email),
+  })
+);
+const rabbitmq = await connectRabbitMQ(config.rabbitmqUrl, consumer.setup);
 
 const app = createApp({ healthChecks: [mongodbCheck(mongo), rabbitmq] });
 
-// Kubernetes sends SIGTERM before stopping the pod: connections close cleanly
-// and the last telemetry batches go out before the process exits.
+// Kubernetes sends SIGTERM before stopping the pod: the consumer finishes the
+// messages it holds, connections close cleanly and the last telemetry batches
+// go out before the process exits.
 process.on('SIGTERM', async () => {
+  await consumer.drain();
   await Promise.allSettled([
     rabbitmq.close(),
     mongo.close(),
