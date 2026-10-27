@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { version } from '../../package.json';
-import { createApp } from '../../src/api/app';
 import { ProblemError } from '../../src/app/errors';
 import type { DependencyCheck } from '../../src/infrastructure/health';
+import { buildApp } from '../support/app';
 
 const up = (name: string): DependencyCheck => ({ name, check: async () => {} });
 const down = (name: string, reason: string): DependencyCheck => ({
@@ -19,7 +19,7 @@ afterEach(() => {
 
 describe('GET /healthcheck', () => {
   it('answers 200 with every dependency ok and the running version', async () => {
-    const app = createApp({ healthChecks: [up('mongodb'), up('rabbitmq')] });
+    const app = buildApp({ healthChecks: [up('mongodb'), up('rabbitmq')] });
 
     const res = await app.request('/healthcheck');
 
@@ -32,7 +32,7 @@ describe('GET /healthcheck', () => {
   });
 
   it('answers 503 degraded with the reason of the dependency that is down', async () => {
-    const app = createApp({
+    const app = buildApp({
       healthChecks: [up('mongodb'), down('rabbitmq', 'connect ECONNREFUSED 127.0.0.1:5672')],
     });
 
@@ -49,7 +49,7 @@ describe('GET /healthcheck', () => {
 
 describe('GET /livez', () => {
   it('stays 200 while a dependency is down, so the pod is not restarted', async () => {
-    const app = createApp({ healthChecks: [down('rabbitmq', 'gone')] });
+    const app = buildApp({ healthChecks: [down('rabbitmq', 'gone')] });
 
     const res = await app.request('/livez');
 
@@ -60,7 +60,7 @@ describe('GET /livez', () => {
 
 describe('error responses', () => {
   it('turn a ProblemError into Problem Details, with its status and headers', async () => {
-    const app = createApp({ healthChecks: [] });
+    const app = buildApp();
     app.get('/limited', () => {
       throw new ProblemError({
         status: 429,
@@ -88,7 +88,7 @@ describe('error responses', () => {
 
   it('answer an unexpected error with a generic 500 that leaks nothing', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
-    const app = createApp({ healthChecks: [] });
+    const app = buildApp();
     app.get('/broken', () => {
       throw new Error('connection refused to mongodb.internal:27017');
     });
@@ -107,7 +107,7 @@ describe('error responses', () => {
   });
 
   it('answer an unknown route with a 404 in Problem Details', async () => {
-    const app = createApp({ healthChecks: [] });
+    const app = buildApp();
 
     const res = await app.request('/api/nothing-here');
 
