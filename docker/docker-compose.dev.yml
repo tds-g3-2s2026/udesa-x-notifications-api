@@ -18,6 +18,14 @@ services:
       EMAIL_PROVIDER: ${EMAIL_PROVIDER:-console}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       EMAIL_FROM: ${EMAIL_FROM:-}
+      # Development only, and only the public half: it lets the service start.
+      # To call /api/notifications by hand, sign a token with your own Ed25519
+      # pair (posts-api's scripts/dev_token.py prints one) and put its public
+      # key here.
+      JWT_PUBLIC_KEY: |
+        -----BEGIN PUBLIC KEY-----
+        MCowBQYDK2VwAyEARApo9EwI+QfBFaEGEuai1VDicsNo3gpNXJ+qzVkfaeU=
+        -----END PUBLIC KEY-----
     # Only for the first start. After that the service rides out an outage of
     # either one by itself: /healthcheck goes 503 and comes back.
     depends_on:

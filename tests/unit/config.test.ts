@@ -5,15 +5,17 @@ import { loadConfig } from '../../src/config';
 const URLS = {
   MONGODB_URL: 'mongodb://mongodb:27017/notifications',
   RABBITMQ_URL: 'amqp://user:pass@rabbitmq:5672',
+  JWT_PUBLIC_KEY: '-----BEGIN PUBLIC KEY-----\nMCow\n-----END PUBLIC KEY-----\n',
 };
 
 describe('loadConfig', () => {
-  it('reads both URLs, defaults the port to 8000 and sends emails to the console', () => {
+  it('reads the URLs and the key, defaults the port to 8000 and sends emails to the console', () => {
     expect(loadConfig(URLS)).toEqual({
       port: 8000,
       mongodbUrl: URLS.MONGODB_URL,
       rabbitmqUrl: URLS.RABBITMQ_URL,
       email: { provider: 'console', from: 'UdeSA-X <no-reply@udesax.app>' },
+      auth: { jwtPublicKey: URLS.JWT_PUBLIC_KEY, jwtIssuer: 'users-api' },
     });
   });
 
@@ -21,9 +23,15 @@ describe('loadConfig', () => {
     expect(loadConfig({ ...URLS, PORT: '9000' }).port).toBe(9000);
   });
 
+  it('takes the issuer from JWT_ISSUER', () => {
+    expect(loadConfig({ ...URLS, JWT_ISSUER: 'users-api-staging' }).auth.jwtIssuer).toBe(
+      'users-api-staging'
+    );
+  });
+
   it('names every missing variable at once', () => {
     expect(() => loadConfig({})).toThrow(
-      'Missing required environment variables: MONGODB_URL, RABBITMQ_URL'
+      'Missing required environment variables: MONGODB_URL, RABBITMQ_URL, JWT_PUBLIC_KEY'
     );
   });
 

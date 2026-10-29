@@ -31,9 +31,13 @@ docker compose -f docker/docker-compose.dev.yml --profile test run --rm tests   
   saber de HTTP ni de la base) y `src/infrastructure/` (MongoDB, RabbitMQ, salud, telemetría).
 - `src/index.ts` es el único módulo que conoce las implementaciones concretas: abre las
   conexiones y se las pasa a `createApp`. Los tests arman la app con dobles por la misma puerta.
-- `MONGODB_URL` y `RABBITMQ_URL` son obligatorias: sin alguna, el proceso no arranca. Con
-  `EMAIL_PROVIDER=resend` también lo es `RESEND_API_KEY`; el default es `console`, que imprime el
-  mail en el log en vez de mandarlo.
+- `MONGODB_URL`, `RABBITMQ_URL` y `JWT_PUBLIC_KEY` son obligatorias: sin alguna, el proceso no
+  arranca. Con `EMAIL_PROVIDER=resend` también lo es `RESEND_API_KEY`; el default es `console`,
+  que imprime el mail en el log en vez de mandarlo.
+- Rutas de la app bajo `/api/notifications`, la que el gateway rutea a este servicio. Cada una
+  pasa por `requireAccount` (`src/api/auth.ts`): firma, vencimiento y emisor del JWT de
+  `users-api`, sin revisar revocaciones (decisión D1 de E4-H1). La cuenta sale siempre del
+  `sub` del token, nunca del body.
 - Emails de cuenta: el consumidor (`src/infrastructure/event-consumer.ts`) declara el exchange
   `udesa-x.events`, la cola `quorum` `notifications-api` y su DLX/DLQ en cada (re)conexión. El
   handler (`src/app/email-events.ts`) es idempotente por el `id` del evento con un documento por
