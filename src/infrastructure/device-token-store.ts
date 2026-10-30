@@ -7,6 +7,8 @@ export interface DeviceTokenRecord {
   _id: string;
   account_id: string;
   updated_at: Date;
+  /** Set when the account is deleted. Nothing sends to a deleted token. */
+  deleted_at: Date | null;
 }
 
 export function deviceTokenCollection(client: MongoClient): Collection<DeviceTokenRecord> {
@@ -20,8 +22,15 @@ export function createDeviceTokenStore(tokens: Collection<DeviceTokenRecord>): D
       // document, owned by whichever wrote last.
       await tokens.updateOne(
         { _id: token },
-        { $set: { account_id: accountId, updated_at: at } },
+        { $set: { account_id: accountId, updated_at: at, deleted_at: null } },
         { upsert: true }
+      );
+    },
+
+    async softDeleteOwnedBy(accountId, at) {
+      await tokens.updateMany(
+        { account_id: accountId, deleted_at: null },
+        { $set: { deleted_at: at } }
       );
     },
   };

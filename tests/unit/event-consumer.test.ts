@@ -50,7 +50,7 @@ beforeEach(() => {
 });
 
 describe('event consumer setup', () => {
-  it('declares the exchange, the DLX, the DLQ and the quorum queue with its four bindings', async () => {
+  it('declares the exchange, the DLX, the DLQ and the quorum queue with one binding per type', async () => {
     const { channel, asModel } = fakeModel();
 
     await createEventConsumer(async () => 'ack').setup(asModel());
@@ -75,6 +75,7 @@ describe('event consumer setup', () => {
       ['notifications-api', 'udesa-x.events', 'email_verification.requested.v1'],
       ['notifications-api', 'udesa-x.events', 'password.reset_requested.v1'],
       ['notifications-api', 'udesa-x.events', 'password.changed.v1'],
+      ['notifications-api', 'udesa-x.events', 'user.deleted.v1'],
     ]);
   });
 

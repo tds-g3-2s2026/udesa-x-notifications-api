@@ -43,6 +43,11 @@ docker compose -f docker/docker-compose.dev.yml --profile test run --rm tests   
   handler (`src/app/email-events.ts`) es idempotente por el `id` del evento con un documento por
   evento en `emails`; no guarda links, códigos ni cuerpos, y nunca los loguea (solo el adaptador de
   consola). Detalle y semántica en el README.
+- Una sola cola para todos los eventos: `src/app/events.ts` lista los tipos que se bindean y
+  manda cada mensaje al handler de su tipo. Un tipo nuevo se suma ahí.
+- Nada se borra físicamente: notificaciones y device tokens llevan `deleted_at`, y toda lectura
+  filtra `deleted_at: null`. `user.deleted` (`src/app/user-deletion.ts`) marca los de la cuenta,
+  idempotente por `id` con `processed_events`.
 - Si RabbitMQ se cae, el servicio sigue vivo y se reconecta solo con backoff. Mientras tanto
   `/healthcheck` responde `503` y `/livez` sigue en `200`, para que Kubernetes lo saque del
   tráfico sin reiniciarlo.
