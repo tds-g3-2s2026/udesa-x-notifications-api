@@ -9,8 +9,14 @@ export interface DeviceTokenStore {
    *
    * A token identifies one installation of the app, so it belongs to whoever
    * signed in on that device last: registering it again under another account
-   * moves it, and under the same one only refreshes `at`. Repeating the call
-   * changes nothing else.
+   * moves it, and under the same one only refreshes `at`. A token deleted with
+   * its account comes back under whoever signs in on that device next.
+   * Repeating the call changes nothing else.
    */
   register(token: string, accountId: string, at: Date): Promise<void>;
+  /**
+   * Marks every token of the account deleted at `at`, for when the account is
+   * deleted. Tokens already deleted keep their date.
+   */
+  softDeleteOwnedBy(accountId: string, at: Date): Promise<void>;
 }

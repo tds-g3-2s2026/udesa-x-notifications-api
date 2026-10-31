@@ -27,9 +27,10 @@ const invalidToken = () =>
  *
  * Signature, expiry and issuer are checked here, with the public key and
  * without calling anybody. Revocation is not: a token closed by a logout keeps
- * working until it expires, at most 15 minutes. posts-api closes that gap by
- * reading users-api's marks (ADR-014); this service does not, on purpose, while
- * all it accepts is a device token.
+ * working until it expires, at most 15 minutes, and in that window it can
+ * still register a device and read, mark and delete the account's
+ * notifications. posts-api closes that gap by reading users-api's marks
+ * (ADR-014); this service does not, on purpose, and accepts that window.
  */
 export function requireAccount({ jwtPublicKey, jwtIssuer }: AuthConfig) {
   return createMiddleware<{ Variables: AuthVariables }>(async (c, next) => {

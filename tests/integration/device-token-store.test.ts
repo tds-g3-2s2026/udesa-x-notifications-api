@@ -49,6 +49,7 @@ describe('device token store', () => {
       _id: token,
       account_id: account,
       updated_at: at,
+      deleted_at: null,
     });
   });
 
@@ -61,7 +62,12 @@ describe('device token store', () => {
     await store.register(token, account, new Date('2026-10-26T09:30:00Z'));
 
     expect(await tokens().find({ _id: token }).toArray()).toEqual([
-      { _id: token, account_id: account, updated_at: new Date('2026-10-26T09:30:00Z') },
+      {
+        _id: token,
+        account_id: account,
+        updated_at: new Date('2026-10-26T09:30:00Z'),
+        deleted_at: null,
+      },
     ]);
   });
 
@@ -75,5 +81,41 @@ describe('device token store', () => {
 
     expect(await tokens().countDocuments({ _id: token })).toBe(1);
     expect((await tokens().findOne({ _id: token }))?.account_id).toBe(second);
+  });
+
+  it('marks every token of an account deleted, keeping the documents and the first date', async () => {
+    const store = createDeviceTokenStore(tokens());
+    const [phone, tablet, other] = [newToken(), newToken(), newToken()];
+    const [account, someoneElse] = [randomUUID(), randomUUID()];
+    await store.register(phone, account, new Date('2026-10-25T12:00:00Z'));
+    await store.register(tablet, account, new Date('2026-10-25T12:00:00Z'));
+    await store.register(other, someoneElse, new Date('2026-10-25T12:00:00Z'));
+    const first = new Date('2026-10-27T08:00:00Z');
+
+    await store.softDeleteOwnedBy(account, first);
+    await store.softDeleteOwnedBy(account, new Date('2026-10-28T08:00:00Z'));
+
+    const stored = await tokens()
+      .find({ _id: { $in: [phone, tablet, other] } })
+      .toArray();
+    expect(stored).toHaveLength(3);
+    expect(stored.find((t) => t._id === phone)?.deleted_at).toEqual(first);
+    expect(stored.find((t) => t._id === tablet)?.deleted_at).toEqual(first);
+    expect(stored.find((t) => t._id === other)?.deleted_at).toBeNull();
+  });
+
+  it('brings a deleted token back under whoever signs in on that device next', async () => {
+    const store = createDeviceTokenStore(tokens());
+    const token = newToken();
+    const [deleted, next] = [randomUUID(), randomUUID()];
+    await store.register(token, deleted, new Date('2026-10-25T12:00:00Z'));
+    await store.softDeleteOwnedBy(deleted, new Date('2026-10-26T12:00:00Z'));
+
+    await store.register(token, next, new Date('2026-10-27T12:00:00Z'));
+
+    expect(await tokens().findOne({ _id: token })).toMatchObject({
+      account_id: next,
+      deleted_at: null,
+    });
   });
 });

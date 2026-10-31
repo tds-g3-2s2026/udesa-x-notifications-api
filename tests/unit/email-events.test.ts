@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EmailMessage, EmailSender } from '../../src/app/email';
 import {
   createEmailEventHandler,
-  EVENT_TYPES,
+  EMAIL_EVENT_TYPES,
   type EmailRecord,
   type EmailStore,
 } from '../../src/app/email-events';
@@ -63,7 +63,7 @@ beforeEach(() => {
 
 describe('email event handler', () => {
   it('handles exactly the four events of the contract', () => {
-    expect(EVENT_TYPES).toEqual([
+    expect(EMAIL_EVENT_TYPES).toEqual([
       'user.registered.v1',
       'email_verification.requested.v1',
       'password.reset_requested.v1',

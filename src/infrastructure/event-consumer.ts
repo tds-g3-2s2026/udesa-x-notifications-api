@@ -1,6 +1,6 @@
 import type { Channel, ChannelModel, ConsumeMessage } from 'amqplib';
 
-import { EVENT_TYPES, type HandlerResult } from '../app/email-events';
+import { EVENT_TYPES, type HandlerResult } from '../app/events';
 import { logEvent } from './telemetry';
 
 // The contract with users-api (platform ADR-017): it declares the exchange with

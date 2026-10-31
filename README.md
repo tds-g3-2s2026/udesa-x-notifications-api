@@ -67,9 +67,102 @@ Lo que llama la app, a través del gateway: todo `/api/notifications` se rutea a
 Cada ruta pide `Authorization: Bearer <access token>` de `users-api`. El servicio verifica la
 firma con `JWT_PUBLIC_KEY`, el vencimiento y que el emisor sea `JWT_ISSUER`, sin llamar a nadie.
 No revisa si la sesión fue cerrada: un token revocado sirve hasta que vence, como máximo 15
-minutos. `posts-api` sí lo revisa (ADR-014); acá se dejó afuera mientras lo único que se acepta
-es un token de dispositivo. Un token inválido responde `401` con `code: invalid-token`, igual
-que `users-api` y `posts-api`.
+minutos, y en ese rato puede leer, marcar y borrar las notificaciones de la cuenta. `posts-api`
+sí lo revisa (ADR-014); acá se acepta esa ventana a propósito. Un token inválido responde `401`
+con `code: invalid-token`, igual que `users-api` y `posts-api`. La cuenta sale siempre del `sub`
+del token: ninguna ruta deja nombrar otra.
+
+### Centro de notificaciones
+
+| Ruta                                | Responde                                                                  |
+| ----------------------------------- | ------------------------------------------------------------------------- |
+| `GET /api/notifications?cursor=...` | `200` con una página: 20 como máximo, de la más reciente a la más antigua |
+| `POST /api/notifications/read-all`  | `204` sin cuerpo: marca leídas todas las no leídas de la cuenta           |
+| `DELETE /api/notifications/{id}`    | `204` sin cuerpo: borrado lógico, la notificación deja de listarse        |
+
+La página tiene la forma de todo listado paginado del sistema (`ARQUITECTURA.md`, "Paginación
+por cursor"), en camelCase:
+
+```json
+{
+  "items": [
+    {
+      "id": "0199f3a5-2c3d-7f4e-9051-6b7c8d9e0f12",
+      "type": "reply",
+      "actor": { "id": "0f8c2a5e-4b7d-4e1a-9c3f-2d6b8a1e5f70", "handle": "juanperez" },
+      "postId": "0199e8b1-5d6e-7f80-9a1b-2c3d4e5f6a7b",
+      "replyId": "0199f3a5-2c3d-7f4e-9051-6b7c8d9e0f99",
+      "createdAt": "2026-10-23T14:09:02.000Z",
+      "readAt": null
+    }
+  ],
+  "nextCursor": "MjAyNi0xMC0yM1QxNDowOTowMi4wMDBafDAxOTlmM2E1..."
+}
+```
+
+- `type`: `follow`, `like`, `retweet` o `reply`. Pueden sumarse otros (las menciones, por
+  ejemplo), así que la app tiene que tolerar uno que no conoce.
+- `actor.handle`: tal cual llega en el evento, **sin `@`** (`juanperez`). Puede ser `null` si
+  `posts-api` no lo conocía. El texto ("@juanperez te empezó a seguir") lo arma la app.
+- `postId`: el post que recibió la interacción, el que se abre al tocarla. `null` en un
+  `follow`.
+- `replyId`: solo en `reply`, el post de la respuesta; `null` en los demás.
+- `createdAt`: cuándo pasó, el `time` del evento.
+- `readAt`: `null` mientras no se leyó. Es el indicador de no leída.
+
+`nextCursor` es `null` en la última página; si no, la app lo devuelve tal cual en `?cursor=`.
+Un cursor que el servicio no emitió responde `400` con `code: invalid-cursor`. El tamaño de
+página es fijo.
+
+`read-all` no toca las que ya estaban leídas (conservan su `readAt`) ni las borradas. Marca
+también las que llegaron después de que la app cargó la lista. `DELETE` responde `204` también
+si la notificación ya estaba borrada, así un reintento no falla. Para una notificación de otra
+cuenta, un id que no existe o uno mal formado responde lo mismo: `404` con
+`code: notification-not-found`, sin decir si el id existe.
+
+Nada se borra de la base. Cada notificación es un documento de la colección `notifications`:
+
+| Campo          | Contenido                                                        |
+| -------------- | ---------------------------------------------------------------- |
+| `_id`          | `id` del evento que la generó: el mismo evento no crea dos       |
+| `recipient_id` | cuenta que la ve                                                 |
+| `type`         | `follow`, `like`, `retweet` o `reply`                            |
+| `actor_id`     | cuenta que hizo la acción                                        |
+| `actor_handle` | handle de esa cuenta según el evento, o `null`                   |
+| `post_id`      | post de la interacción; `null` en un `follow`                    |
+| `reply_id`     | post de la respuesta en un `reply`; `null` en los demás          |
+| `created_at`   | `time` del evento                                                |
+| `read_at`      | cuándo se leyó; `null` mientras no                               |
+| `deleted_at`   | cuándo se borró; `null` mientras no. Una borrada no se lista más |
+
+El listado se sostiene con el índice `{ recipient_id: 1, deleted_at: 1, created_at: -1, _id: -1 }`,
+que el servicio crea al arrancar. Si MongoDB no responde en ese momento, lo deja en el log y
+sigue: el listado anda igual, más lento, hasta que un reinicio lo cree.
+
+Las notificaciones las van a crear los consumidores de `follow.created` e `interaction.created`.
+Mientras no estén, para probar el centro de punta a punta se cargan a mano. Con el compose
+levantado, y `<cuenta>` igual al `sub` del token con el que se llama (ver el comentario de
+`JWT_PUBLIC_KEY` en `docker/docker-compose.dev.yml`):
+
+```bash
+docker compose -f docker/docker-compose.dev.yml exec mongodb mongosh notifications --quiet --eval '
+const account = "<cuenta>";
+const now = Date.now();
+db.notifications.insertMany(Array.from({ length: 25 }, (_, i) => ({
+  _id: crypto.randomUUID(),
+  recipient_id: account,
+  type: ["follow", "like", "retweet", "reply"][i % 4],
+  actor_id: crypto.randomUUID(),
+  actor_handle: i % 5 === 0 ? null : "juanperez",
+  post_id: i % 4 === 0 ? null : crypto.randomUUID(),
+  reply_id: i % 4 === 3 ? crypto.randomUUID() : null,
+  created_at: new Date(now - i * 60000),
+  read_at: null,
+  deleted_at: null,
+})));'
+```
+
+Son 25, así que la primera página trae 20 y un `nextCursor`, y la segunda las 5 restantes.
 
 ## Configuración
 
@@ -106,18 +199,21 @@ su `id` es la clave de idempotencia.
 `verification_url` y `token` son secretos: no se loguean, no se guardan y no viajan en un error.
 Solo el adaptador de consola de desarrollo los imprime, porque ese es su trabajo.
 
+También consume `user.deleted.v1` (campo `user_id`), que no manda mail: borra lógicamente lo que
+el servicio guarda de esa cuenta. Está más abajo, en "Cuenta eliminada".
+
 ### Topología en RabbitMQ
 
 El servicio declara esto al arrancar y otra vez en cada reconexión (la recuperación de `amqplib`
 corre el `setup` después de cada conexión exitosa, y también vuelve a registrar el consumidor):
 
-| Qué                      | Nombre                  | Detalle                                                                                                       |
-| ------------------------ | ----------------------- | ------------------------------------------------------------------------------------------------------------- |
-| Exchange de eventos      | `udesa-x.events`        | `topic`, durable. Lo declara también `users-api`, con los mismos argumentos                                   |
-| Cola del servicio        | `notifications-api`     | `quorum`, durable, `x-dead-letter-exchange: udesa-x.events.dlx`                                               |
-| Bindings de la cola      | las 4 routing keys      | `user.registered.v1`, `email_verification.requested.v1`, `password.reset_requested.v1`, `password.changed.v1` |
-| Exchange de rechazados   | `udesa-x.events.dlx`    | `fanout`, durable                                                                                             |
-| Cola de rechazados (DLQ) | `notifications-api.dlq` | `quorum`, durable, ligada al DLX                                                                              |
+| Qué                      | Nombre                  | Detalle                                                                     |
+| ------------------------ | ----------------------- | --------------------------------------------------------------------------- |
+| Exchange de eventos      | `udesa-x.events`        | `topic`, durable. Lo declara también `users-api`, con los mismos argumentos |
+| Cola del servicio        | `notifications-api`     | `quorum`, durable, `x-dead-letter-exchange: udesa-x.events.dlx`             |
+| Bindings de la cola      | las 5 routing keys      | Las 4 de los emails y `user.deleted.v1`                                     |
+| Exchange de rechazados   | `udesa-x.events.dlx`    | `fanout`, durable                                                           |
+| Cola de rechazados (DLQ) | `notifications-api.dlq` | `quorum`, durable, ligada al DLX                                            |
 
 La routing key es el `type` completo. El consumidor es dueño de su cola: si `users-api` publica
 antes de que exista, el broker devuelve el mensaje (publica con `mandatory`) y la fila de su
@@ -165,6 +261,30 @@ Qué pasa con lo que no sale bien:
 | Resend rechaza el mail o no contesta en 5 s           | Se loguea asunto, destinatario y motivo (sin cuerpo), el mail queda `failed` y se hace `ack`. Los reintentos con backoff son la `T-59` |
 | MongoDB u otra dependencia falla                      | `nack` con reencolado: el mensaje vuelve a la cola                                                                                     |
 
+### Cuenta eliminada
+
+Cuando `users-api` publica `user.deleted.v1`, el servicio marca con `deleted_at` (el `time` del
+evento) los device tokens de la cuenta (`device_tokens`) y las notificaciones que recibió
+(`notifications`). No borra ningún documento. Un token borrado no recibe más push, y vuelve a
+estar vivo si alguien inicia sesión en ese dispositivo: el registro le pone `deleted_at: null`.
+
+La idempotencia es por `id` del evento, con un documento por evento procesado en
+`processed_events` (`_id`, `type`, `user_id`, `processed_at`). Como no hay transacciones entre
+documentos, el orden importa:
+
+1. Si el `id` ya está en `processed_events`, se descarta y se confirma (`ack`).
+2. Se marcan los tokens y después las notificaciones. Cada `updateMany` filtra por
+   `deleted_at: null`, así que repetirlo no cambia nada y conserva la fecha del primer borrado.
+3. Recién entonces se guarda el evento en `processed_events` y se hace `ack`.
+
+Si MongoDB falla a mitad de camino, el mensaje vuelve a la cola y el reintento termina lo que
+faltaba. Un mensaje sin `id`, `time` o `data.user_id` va a la DLQ. Si dos entregas del mismo
+evento se atienden a la vez, las dos pueden pasar el paso 1 y correr los `updateMany`. No hace
+daño: escriben la misma fecha (la del evento) y queda un solo documento en `processed_events`.
+
+No toca las notificaciones donde la cuenta borrada es la que hizo la acción: siguen
+apareciéndole a quien las recibió, con su handle.
+
 ### Mandar un evento a mano
 
 Con el compose levantado, desde la interfaz de administración (`Exchanges > udesa-x.events > Publish message`) se publica con la routing key igual al `type` y el sobre
@@ -192,9 +312,15 @@ bun run test
 Los tests del consumidor arman sus mensajes con los `examples` de `contracts/events/` y los
 validan contra el esquema con `ajv` y `ajv-formats` (ADR-017). La integración publica en el
 exchange real y comprueba el flujo completo: el mismo evento dos veces manda un solo mail y deja
-un documento `sent`, la cola es `quorum` con sus bindings y los mensajes inválidos llegan a la
-DLQ. Usa la cola `notifications-api`, así que no corre bien contra un broker donde ya esté
-consumiendo una instancia del servicio.
+un documento `sent`, la cola es `quorum` con sus bindings, un `user.deleted.v1` publicado borra
+las notificaciones de la cuenta y los mensajes inválidos llegan a la DLQ. Usa la cola
+`notifications-api`, así que no corre bien contra un broker donde ya esté consumiendo una
+instancia del servicio.
+
+El centro de notificaciones se prueba entero contra MongoDB real (`tests/integration/notifications-*`):
+la app con el store de verdad, el orden y el cursor entre páginas, el desempate por id y que
+MongoDB use el índice para la consulta de una página. Los tests unitarios cubren la parte HTTP
+con dobles.
 
 La suite completa, dentro de la imagen y como la corre el CI:
 

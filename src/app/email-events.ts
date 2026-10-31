@@ -1,6 +1,7 @@
 import { logEvent } from '../infrastructure/telemetry';
 import type { EmailMessage, EmailSender } from './email';
 import { passwordChangedEmail, passwordResetEmail, verificationEmail } from './email-templates';
+import type { HandlerResult } from './events';
 
 export type EmailStatus = 'pending' | 'sent' | 'failed';
 
@@ -57,14 +58,8 @@ const EVENT_KINDS: Record<string, EventKind> = {
   },
 };
 
-/** The routing keys the service binds its queue with: one per type it handles. */
-export const EVENT_TYPES = Object.keys(EVENT_KINDS);
-
-/**
- * `ack`: handled, or already handled before. `dead-letter`: the message can
- * never be handled, so it goes to the DLQ instead of being retried.
- */
-export type HandlerResult = 'ack' | 'dead-letter';
+/** The event types that ask for an email. */
+export const EMAIL_EVENT_TYPES = Object.keys(EVENT_KINDS);
 
 interface ParsedEvent {
   id: string;

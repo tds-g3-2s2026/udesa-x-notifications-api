@@ -11,7 +11,13 @@ import type { MongoClient } from 'mongodb';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { EmailMessage, EmailSender } from '../../src/app/email';
-import { createEmailEventHandler, EVENT_TYPES } from '../../src/app/email-events';
+import { createEmailEventHandler, EMAIL_EVENT_TYPES } from '../../src/app/email-events';
+import { routeEvents } from '../../src/app/events';
+import { createUserDeletedHandler } from '../../src/app/user-deletion';
+import {
+  createDeviceTokenStore,
+  deviceTokenCollection,
+} from '../../src/infrastructure/device-token-store';
 import { createEmailStore, emailCollection } from '../../src/infrastructure/email-store';
 import {
   createEventConsumer,
@@ -21,8 +27,17 @@ import {
   QUEUE,
 } from '../../src/infrastructure/event-consumer';
 import { createMongoClient } from '../../src/infrastructure/mongodb';
+import {
+  createNotificationStore,
+  notificationCollection,
+} from '../../src/infrastructure/notification-store';
+import {
+  createProcessedEventStore,
+  processedEventCollection,
+} from '../../src/infrastructure/processed-event-store';
 import { connectRabbitMQ, type RabbitMQ } from '../../src/infrastructure/rabbitmq';
 import { exampleEvent, type EventEnvelope } from '../support/contracts';
+import { aNotification } from '../support/notifications';
 
 // The whole flow against real RabbitMQ and MongoDB: a message published to the
 // exchange, routed by its type to the service's queue, consumed, deduplicated
@@ -48,6 +63,8 @@ const returned: ConsumeMessage[] = [];
 const createdIds: string[] = [];
 
 const emails = () => emailCollection(mongo);
+const notifications = () => notificationCollection(mongo);
+const deletedAccounts: string[] = [];
 
 function newEvent(type: string): EventEnvelope {
   const id = randomUUID();
@@ -70,7 +87,14 @@ const publishEvent = (event: EventEnvelope) => publish(event.type, JSON.stringif
 
 beforeAll(async () => {
   mongo = createMongoClient(MONGODB_URL);
-  const handler = createEmailEventHandler({ store: createEmailStore(emails()), sender });
+  const handler = routeEvents({
+    email: createEmailEventHandler({ store: createEmailStore(emails()), sender }),
+    userDeleted: createUserDeletedHandler({
+      deviceTokens: createDeviceTokenStore(deviceTokenCollection(mongo)),
+      notifications: createNotificationStore(notifications()),
+      processedEvents: createProcessedEventStore(processedEventCollection(mongo)),
+    }),
+  });
   consumerConnection = await connectRabbitMQ(RABBITMQ_URL, createEventConsumer(handler).setup);
   await vi.waitFor(() => consumerConnection.check(), { timeout: 15_000, interval: 100 });
 
@@ -89,6 +113,8 @@ beforeEach(() => {
 
 afterAll(async () => {
   await emails().deleteMany({ _id: { $in: createdIds } });
+  await notifications().deleteMany({ recipient_id: { $in: deletedAccounts } });
+  await processedEventCollection(mongo).deleteMany({ _id: { $in: createdIds } });
   await Promise.allSettled([
     consumerConnection.close(),
     publisherConnection.close(),
@@ -117,7 +143,7 @@ describe('events queue', () => {
     }
   });
 
-  it.each(EVENT_TYPES)('is bound to %s and mails the example of its schema', async (type) => {
+  it.each(EMAIL_EVENT_TYPES)('is bound to %s and mails the example of its schema', async (type) => {
     const event = newEvent(type);
 
     await publishEvent(event);
@@ -129,6 +155,30 @@ describe('events queue', () => {
     await vi.waitFor(async () => {
       expect(await emails().findOne({ _id: event.id })).toMatchObject({ status: 'sent', type });
     });
+  });
+});
+
+describe('user.deleted across the broker', () => {
+  it('is bound to user.deleted.v1 and soft-deletes the notifications of the account', async () => {
+    const account = randomUUID();
+    deletedAccounts.push(account);
+    const notification = aNotification(account);
+    await createNotificationStore(notifications()).add(notification);
+    const event = newEvent('user.deleted.v1');
+    event.data.user_id = account;
+
+    await publishEvent(event);
+
+    await vi.waitFor(
+      async () => {
+        expect((await notifications().findOne({ _id: notification.id }))?.deleted_at).toEqual(
+          new Date(event.time)
+        );
+      },
+      { timeout: 10_000, interval: 50 }
+    );
+    expect(returned).toHaveLength(0);
+    expect(sent).toHaveLength(0);
   });
 });
 
