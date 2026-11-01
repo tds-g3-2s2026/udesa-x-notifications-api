@@ -86,7 +86,7 @@ docker compose -f docker/docker-compose.dev.yml --profile test run --rm tests   
 
 ## Skills (.agents/skills/)
 
-- `explicar-implementacion`: Genera la explicación detallada del cambio para incluir en la descripción del PR.
+- `explicar-implementacion`: Le pregunta al autor por qué tomó sus decisiones y con eso redacta la descripción del PR, una explicación breve en texto corrido para alguien sin el contexto de la pieza.
 - `revisar-pr`: Guía paso a paso para la revisión técnica de Pull Requests.
 
 <!-- FIN BLOQUE COMUN -->
