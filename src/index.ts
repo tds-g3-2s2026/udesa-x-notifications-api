@@ -1,4 +1,5 @@
 import { OTLPLogExporter } from '@opentelemetry/exporter-logs-otlp-proto';
+import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-proto';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-proto';
 
 import { createApp } from './api/app';
@@ -31,7 +32,11 @@ const config = loadConfig();
 // and the rest of the OTEL_EXPORTER_OTLP_* variables, on their own.
 const telemetry = startTelemetry(
   process.env.OTEL_EXPORTER_OTLP_ENDPOINT
-    ? { spans: new OTLPTraceExporter(), logs: new OTLPLogExporter() }
+    ? {
+        spans: new OTLPTraceExporter(),
+        logs: new OTLPLogExporter(),
+        metrics: new OTLPMetricExporter(),
+      }
     : undefined
 );
 
@@ -81,6 +86,7 @@ process.on('SIGTERM', async () => {
     mongo.close(),
     telemetry?.tracerProvider.shutdown(),
     telemetry?.loggerProvider.shutdown(),
+    telemetry?.meterProvider.shutdown(),
   ]);
   process.exit(0);
 });

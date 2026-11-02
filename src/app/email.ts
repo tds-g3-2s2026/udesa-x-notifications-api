@@ -1,3 +1,5 @@
+export type EmailTemplate = 'verification' | 'password_reset' | 'password_changed';
+
 export interface EmailMessage {
   to: string;
   subject: string;

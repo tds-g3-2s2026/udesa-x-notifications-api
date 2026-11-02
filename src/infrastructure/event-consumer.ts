@@ -1,7 +1,7 @@
 import type { Channel, ChannelModel, ConsumeMessage } from 'amqplib';
 
 import { EVENT_TYPES, type HandlerResult } from '../app/events';
-import { logEvent } from './telemetry';
+import { logEvent, recordMessageFinished, recordMessageStarted } from './telemetry';
 
 // The contract with users-api (platform ADR-017): it declares the exchange with
 // the same arguments, we own the queue and its dead-letter side.
@@ -61,10 +61,13 @@ export function createEventConsumer(handle: (body: string) => Promise<HandlerRes
   }
 
   async function handleMessage(channel: Channel, msg: ConsumeMessage): Promise<void> {
+    const started = performance.now();
+    recordMessageStarted(QUEUE);
     let result: HandlerResult;
     try {
       result = await handle(msg.content.toString('utf8'));
     } catch (error) {
+      recordMessageFinished(QUEUE, 'failed', (performance.now() - started) / 1000);
       // MongoDB or another dependency failed: give the message back.
       logEvent('error', 'Event handling failed, requeueing', {
         messageId: msg.properties.messageId ?? '',
@@ -73,6 +76,7 @@ export function createEventConsumer(handle: (body: string) => Promise<HandlerRes
       settle(() => channel.nack(msg, false, true), msg);
       return;
     }
+    recordMessageFinished(QUEUE, result, (performance.now() - started) / 1000);
     settle(() => (result === 'ack' ? channel.ack(msg) : channel.nack(msg, false, false)), msg);
   }
 
