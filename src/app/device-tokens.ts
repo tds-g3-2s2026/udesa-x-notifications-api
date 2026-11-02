@@ -19,6 +19,11 @@ export interface DeviceTokenStore {
   /** The tokens of the account that are not deleted: where its pushes go. */
   activeTokensOf(accountId: string): Promise<string[]>;
   /**
+   * Marks the tokens deleted at `at`, for when FCM says they no longer exist
+   * (E4-H1 CA.4). Tokens already deleted keep their date.
+   */
+  softDelete(tokens: string[], at: Date): Promise<void>;
+  /**
    * Marks every token of the account deleted at `at`, for when the account is
    * deleted. Tokens already deleted keep their date.
    */

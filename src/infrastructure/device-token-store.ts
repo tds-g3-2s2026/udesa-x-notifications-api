@@ -52,6 +52,13 @@ export function createDeviceTokenStore(tokens: Collection<DeviceTokenRecord>): D
       return records.map((record) => record._id);
     },
 
+    async softDelete(ids, at) {
+      await tokens.updateMany(
+        { _id: { $in: ids }, deleted_at: null },
+        { $set: { deleted_at: at } }
+      );
+    },
+
     async softDeleteOwnedBy(accountId, at) {
       await tokens.updateMany(
         { account_id: accountId, deleted_at: null },
