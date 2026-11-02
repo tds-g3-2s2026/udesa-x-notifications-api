@@ -1,5 +1,5 @@
-import { logEvent } from '../infrastructure/telemetry';
-import type { EmailMessage, EmailSender } from './email';
+import { logEvent, recordEmailResult } from '../infrastructure/telemetry';
+import type { EmailMessage, EmailSender, EmailTemplate } from './email';
 import { passwordChangedEmail, passwordResetEmail, verificationEmail } from './email-templates';
 import type { HandlerResult } from './events';
 
@@ -33,6 +33,7 @@ export interface EmailStore {
 }
 
 interface EventKind {
+  template: EmailTemplate;
   /** Fields of `data` the email needs, besides `user_id` and `email`. */
   fields: string[];
   render(to: string, data: Record<string, string>): EmailMessage;
@@ -41,18 +42,22 @@ interface EventKind {
 // Keep in step with the schemas in contracts/events/.
 const EVENT_KINDS: Record<string, EventKind> = {
   'user.registered.v1': {
+    template: 'verification',
     fields: ['verification_url'],
     render: (to, data) => verificationEmail(to, data.verification_url),
   },
   'email_verification.requested.v1': {
+    template: 'verification',
     fields: ['verification_url'],
     render: (to, data) => verificationEmail(to, data.verification_url),
   },
   'password.reset_requested.v1': {
+    template: 'password_reset',
     fields: ['token'],
     render: (to, data) => passwordResetEmail(to, data.token),
   },
   'password.changed.v1': {
+    template: 'password_changed',
     fields: [],
     render: (to) => passwordChangedEmail(to),
   },
@@ -167,6 +172,7 @@ export function createEmailEventHandler(deps: {
     try {
       await sender.send(event.message);
     } catch (error) {
+      recordEmailResult(EVENT_KINDS[type].template, 'failed');
       logEvent('warn', 'Email not sent', {
         id,
         type,
@@ -175,6 +181,7 @@ export function createEmailEventHandler(deps: {
       await store.finish(id, 'failed', null);
       return 'ack';
     }
+    recordEmailResult(EVENT_KINDS[type].template, 'sent');
     await store.finish(id, 'sent', now());
     return 'ack';
   }

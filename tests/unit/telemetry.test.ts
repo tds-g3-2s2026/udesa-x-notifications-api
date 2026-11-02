@@ -1,5 +1,6 @@
 import { SpanStatusCode } from '@opentelemetry/api';
 import { InMemoryLogRecordExporter } from '@opentelemetry/sdk-logs';
+import { AggregationTemporality, InMemoryMetricExporter } from '@opentelemetry/sdk-metrics';
 import { InMemorySpanExporter } from '@opentelemetry/sdk-trace-base';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -19,12 +20,17 @@ app.get('/broken', () => {
 });
 
 beforeAll(() => {
-  telemetry = startTelemetry({ spans, logs: logRecords })!;
+  telemetry = startTelemetry({
+    spans,
+    logs: logRecords,
+    metrics: new InMemoryMetricExporter(AggregationTemporality.DELTA),
+  })!;
 });
 
 afterAll(async () => {
   await telemetry.tracerProvider.shutdown();
   await telemetry.loggerProvider.shutdown();
+  await telemetry.meterProvider.shutdown();
 });
 
 beforeEach(() => {

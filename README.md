@@ -176,7 +176,7 @@ Son 25, así que la primera página trae 20 y un `nextCursor`, y la segunda las 
 | `EMAIL_PROVIDER`              | `console`                       | `console` imprime el mail en el log; `resend` lo manda (ADR-010)        |
 | `RESEND_API_KEY`              | sin definir                     | Clave de Resend. Obligatoria con `EMAIL_PROVIDER=resend`                |
 | `EMAIL_FROM`                  | `UdeSA-X <no-reply@udesax.app>` | Remitente; el dominio `udesax.app` está verificado en Resend            |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | sin definir                     | Si está, manda trazas y logs por OTLP (ADR-013)                         |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | sin definir                     | Si está, manda trazas, logs y métricas por OTLP (ADR-013)               |
 
 Sin `MONGODB_URL`, `RABBITMQ_URL` o `JWT_PUBLIC_KEY` el proceso no arranca y dice cuál falta. Con
 `EMAIL_PROVIDER=resend` y sin `RESEND_API_KEY` tampoco arranca: sin clave, cada mail fallaría
@@ -331,3 +331,29 @@ docker compose -f docker/docker-compose.dev.yml --profile test run --rm tests
 En el CI, `ci-node.yml` de `udesa-x-platform` levanta MongoDB y RabbitMQ al lado del job
 (`mongodb-y-rabbitmq: true`), corre la suite en la imagen de tests y verifica que la imagen de
 producción responda `200` en `/healthcheck`.
+
+## Métricas operativas
+
+Cada proceso exporta métricas por OTLP/HTTP solo con `OTEL_EXPORTER_OTLP_ENDPOINT`, usando
+las mismas credenciales de las trazas y los logs. La identidad de instancia distingue
+réplicas y reinicios. Al apagar se termina el trabajo en curso y se exportan las mediciones
+pendientes.
+
+Las duraciones HTTP se registran en segundos, por método, ruta parametrizada y código de
+respuesta. Las probes quedan excluidas; los IDs, parámetros de búsqueda, destinatarios y
+payloads no son etiquetas. Los errores conservan el código que finalmente recibe el cliente.
+El SDK de JavaScript utilizado no exporta exemplars; la correlación desde una métrica hacia
+una traza se comprueba con los histogramas de las APIs Python.
+
+Cada entrega de la cola suma un intento consumido, incluidas reentregas y duplicados. Un
+fallo del handler suma un procesamiento fallido; un descarte permanente suma un pedido de
+envío a la DLQ. La duración mide solamente el procesamiento del handler, sin el tiempo de
+espera en RabbitMQ ni el ACK. Esas observaciones no modifican la confirmación ni los
+reintentos existentes.
+
+Los contadores de correo registran lo que el proveedor aceptó o rechazó, por plantilla.
+Un duplicado descartado no suma un envío, y un ACK no significa que el correo se haya
+aceptado. Si el proveedor acepta un correo y después falla la persistencia, el intento
+sigue contado como enviado; una reentrega puede generar otro intento. La aceptación por el
+proveedor no garantiza la entrega en la bandeja del destinatario. El registro de device
+tokens no produce una métrica de envío push.
