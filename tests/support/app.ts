@@ -1,15 +1,21 @@
 import { createApp, type AppDependencies } from '../../src/api/app';
+import type { DeviceTokenStore } from '../../src/app/device-tokens';
 import type { NotificationStore } from '../../src/app/notifications';
 import { issueToken, TEST_AUTH } from './auth';
 
-// A test that reaches the store without handing one in fails loudly.
-const noStore = () => Promise.reject(new Error('This test passed no notification store'));
+// A test that reaches a store without handing one in fails loudly.
+const noStore = (what: string) => () =>
+  Promise.reject(new Error(`This test passed no ${what} store`));
 const NO_NOTIFICATIONS: NotificationStore = {
-  add: noStore,
-  page: noStore,
-  markAllRead: noStore,
-  softDelete: noStore,
-  softDeleteOwnedBy: noStore,
+  add: noStore('notification'),
+  page: noStore('notification'),
+  markAllRead: noStore('notification'),
+  softDelete: noStore('notification'),
+  softDeleteOwnedBy: noStore('notification'),
+};
+const NO_DEVICE_TOKENS: DeviceTokenStore = {
+  register: noStore('device token'),
+  softDeleteOwnedBy: noStore('device token'),
 };
 
 /** The app with nothing to check, unless the test says otherwise. */
@@ -18,6 +24,7 @@ export function buildApp(dependencies: Partial<AppDependencies> = {}) {
     healthChecks: [],
     auth: TEST_AUTH,
     notifications: NO_NOTIFICATIONS,
+    deviceTokens: NO_DEVICE_TOKENS,
     ...dependencies,
   });
 }
