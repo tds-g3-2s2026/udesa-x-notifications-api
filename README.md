@@ -176,11 +176,16 @@ Son 25, así que la primera página trae 20 y un `nextCursor`, y la segunda las 
 | `EMAIL_PROVIDER`              | `console`                       | `console` imprime el mail en el log; `resend` lo manda (ADR-010)        |
 | `RESEND_API_KEY`              | sin definir                     | Clave de Resend. Obligatoria con `EMAIL_PROVIDER=resend`                |
 | `EMAIL_FROM`                  | `UdeSA-X <no-reply@udesax.app>` | Remitente; el dominio `udesax.app` está verificado en Resend            |
+| `PUSH_PROVIDER`               | `console`                       | `console` imprime el push en el log; `fcm` lo manda por FCM             |
+| `FIREBASE_SERVICE_ACCOUNT`    | sin definir                     | JSON entero del service account de Firebase. Obligatoria con `fcm`      |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | sin definir                     | Si está, manda trazas y logs por OTLP (ADR-013)                         |
 
 Sin `MONGODB_URL`, `RABBITMQ_URL` o `JWT_PUBLIC_KEY` el proceso no arranca y dice cuál falta. Con
 `EMAIL_PROVIDER=resend` y sin `RESEND_API_KEY` tampoco arranca: sin clave, cada mail fallaría
-recién con el primer evento. Un `EMAIL_PROVIDER` desconocido también lo frena.
+recién con el primer evento. Un `EMAIL_PROVIDER` desconocido también lo frena. Lo mismo con
+`PUSH_PROVIDER=fcm`: sin `FIREBASE_SERVICE_ACCOUNT`, o con uno que no es JSON, al que le falta
+`project_id`, `client_email` o `private_key`, o cuya `private_key` no se puede leer, no arranca.
+El error nunca muestra el contenido, porque trae la clave privada.
 
 ## Eventos que consume
 

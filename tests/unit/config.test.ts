@@ -9,12 +9,13 @@ const URLS = {
 };
 
 describe('loadConfig', () => {
-  it('reads the URLs and the key, defaults the port to 8000 and sends emails to the console', () => {
+  it('reads the URLs and the key, defaults the port to 8000 and prints emails and pushes', () => {
     expect(loadConfig(URLS)).toEqual({
       port: 8000,
       mongodbUrl: URLS.MONGODB_URL,
       rabbitmqUrl: URLS.RABBITMQ_URL,
       email: { provider: 'console', from: 'UdeSA-X <no-reply@udesax.app>' },
+      push: { provider: 'console' },
       auth: { jwtPublicKey: URLS.JWT_PUBLIC_KEY, jwtIssuer: 'users-api' },
     });
   });
@@ -75,6 +76,70 @@ describe('loadConfig email', () => {
   it('rejects an unknown provider', () => {
     expect(() => loadConfig({ ...URLS, EMAIL_PROVIDER: 'smtp' })).toThrow(
       "EMAIL_PROVIDER must be 'console' or 'resend', got 'smtp'"
+    );
+  });
+});
+
+describe('loadConfig push', () => {
+  const SERVICE_ACCOUNT = {
+    type: 'service_account',
+    project_id: 'udesa-x',
+    private_key: '-----BEGIN PRIVATE KEY-----\nMIIE\n-----END PRIVATE KEY-----\n',
+    client_email: 'notifications@udesa-x.iam.gserviceaccount.com',
+  };
+
+  it('keeps the console provider when PUSH_PROVIDER is empty', () => {
+    expect(loadConfig({ ...URLS, PUSH_PROVIDER: '' }).push).toEqual({ provider: 'console' });
+  });
+
+  it('uses FCM with the fields of the key file as Firebase hands it', () => {
+    const env = {
+      ...URLS,
+      PUSH_PROVIDER: 'fcm',
+      FIREBASE_SERVICE_ACCOUNT: JSON.stringify(SERVICE_ACCOUNT),
+    };
+
+    expect(loadConfig(env).push).toEqual({
+      provider: 'fcm',
+      serviceAccount: {
+        projectId: 'udesa-x',
+        clientEmail: 'notifications@udesa-x.iam.gserviceaccount.com',
+        privateKey: SERVICE_ACCOUNT.private_key,
+      },
+    });
+  });
+
+  it('does not start with FCM and no service account', () => {
+    expect(() => loadConfig({ ...URLS, PUSH_PROVIDER: 'fcm' })).toThrow(
+      'FIREBASE_SERVICE_ACCOUNT is required when PUSH_PROVIDER=fcm'
+    );
+  });
+
+  it('does not start with a service account that is not JSON, without echoing it', () => {
+    const start = () =>
+      loadConfig({ ...URLS, PUSH_PROVIDER: 'fcm', FIREBASE_SERVICE_ACCOUNT: 'private-key-here' });
+
+    expect(start).toThrow('FIREBASE_SERVICE_ACCOUNT is not valid JSON');
+    expect(start).not.toThrow('private-key-here');
+  });
+
+  it.each([
+    ['without private_key', { ...SERVICE_ACCOUNT, private_key: undefined }],
+    ['that is not an object', 'udesa-x'],
+    ['that is null', null],
+  ])('does not start with a service account %s', (_, account) => {
+    expect(() =>
+      loadConfig({
+        ...URLS,
+        PUSH_PROVIDER: 'fcm',
+        FIREBASE_SERVICE_ACCOUNT: JSON.stringify(account),
+      })
+    ).toThrow('FIREBASE_SERVICE_ACCOUNT must have project_id, client_email and private_key');
+  });
+
+  it('rejects an unknown provider', () => {
+    expect(() => loadConfig({ ...URLS, PUSH_PROVIDER: 'apns' })).toThrow(
+      "PUSH_PROVIDER must be 'console' or 'fcm', got 'apns'"
     );
   });
 });
