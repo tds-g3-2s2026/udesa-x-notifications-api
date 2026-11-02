@@ -145,6 +145,57 @@ describe('HTTP metrics', () => {
     );
     expect(histogram?.dataPoints[0].attributes['http.response.status_code']).toBe(422);
   });
+
+  it('records a server failure when the error handler itself throws', async () => {
+    const service = app();
+    service.get('/broken', () => {
+      throw new Error('request failed');
+    });
+    const handlerFailure = new Error('error handler failed');
+    service.onError(() => {
+      throw handlerFailure;
+    });
+
+    await expect(service.request('/broken')).rejects.toBe(handlerFailure);
+
+    const histogram = (await metrics()).find(
+      (m) => m.descriptor.name === 'http.server.request.duration'
+    );
+    expect(histogram?.dataPoints).toEqual([
+      expect.objectContaining({
+        attributes: {
+          'http.request.method': 'GET',
+          'http.response.status_code': 500,
+          'http.route': '/broken',
+        },
+        value: expect.objectContaining({ count: 1 }),
+      }),
+    ]);
+  });
+
+  it('aggregates extension HTTP methods into one bounded metric series', async () => {
+    const service = app();
+    service.all('/api/notifications/:id', (c) => c.json({ ok: true }));
+
+    for (const method of ['PURGE', 'CUSTOM-VERB']) {
+      const response = await service.request('/api/notifications/private-id', { method });
+      expect(response.status).toBe(200);
+    }
+
+    const histogram = (await metrics()).find(
+      (m) => m.descriptor.name === 'http.server.request.duration'
+    );
+    expect(histogram?.dataPoints).toEqual([
+      expect.objectContaining({
+        attributes: {
+          'http.request.method': '_OTHER',
+          'http.response.status_code': 200,
+          'http.route': '/api/notifications/:id',
+        },
+        value: expect.objectContaining({ count: 2 }),
+      }),
+    ]);
+  });
 });
 
 describe('message processing metrics', () => {
