@@ -150,8 +150,9 @@ El listado se sostiene con el índice `{ recipient_id: 1, deleted_at: 1, created
 que el servicio crea al arrancar. Si MongoDB no responde en ese momento, lo deja en el log y
 sigue: el listado anda igual, más lento, hasta que un reinicio lo cree.
 
-Las notificaciones las van a crear los consumidores de `follow.created` e `interaction.created`.
-Mientras no estén, para probar el centro de punta a punta se cargan a mano. Con el compose
+Las notificaciones las crean los consumidores de eventos: hoy el de `follow.created` (más abajo,
+en "Nuevo seguidor"); el de `interaction.created` llega con `E4-H2`. Para probar el centro con
+muchas a la vez se cargan a mano. Con el compose
 levantado, y `<cuenta>` igual al `sub` del token con el que se llama (ver el comentario de
 `JWT_PUBLIC_KEY` en `docker/docker-compose.dev.yml`):
 
@@ -216,7 +217,9 @@ su `id` es la clave de idempotencia.
 Solo el adaptador de consola de desarrollo los imprime, porque ese es su trabajo.
 
 También consume `user.deleted.v1` (campo `user_id`), que no manda mail: borra lógicamente lo que
-el servicio guarda de esa cuenta. Está más abajo, en "Cuenta eliminada".
+el servicio guarda de esa cuenta. Está más abajo, en "Cuenta eliminada". Y `follow.created.v1`
+(campos `follower_id`, `follower_handle` y `followee_id`), que publica `posts-api`: avisa por
+push a la cuenta seguida, en "Nuevo seguidor".
 
 ### Topología en RabbitMQ
 
@@ -227,7 +230,7 @@ corre el `setup` después de cada conexión exitosa, y también vuelve a registr
 | ------------------------ | ----------------------- | --------------------------------------------------------------------------- |
 | Exchange de eventos      | `udesa-x.events`        | `topic`, durable. Lo declara también `users-api`, con los mismos argumentos |
 | Cola del servicio        | `notifications-api`     | `quorum`, durable, `x-dead-letter-exchange: udesa-x.events.dlx`             |
-| Bindings de la cola      | las 5 routing keys      | Las 4 de los emails y `user.deleted.v1`                                     |
+| Bindings de la cola      | las 6 routing keys      | Las 4 de los emails, `user.deleted.v1` y `follow.created.v1`                |
 | Exchange de rechazados   | `udesa-x.events.dlx`    | `fanout`, durable                                                           |
 | Cola de rechazados (DLQ) | `notifications-api.dlq` | `quorum`, durable, ligada al DLX                                            |
 
@@ -301,11 +304,49 @@ daño: escriben la misma fecha (la del evento) y queda un solo documento en `pro
 No toca las notificaciones donde la cuenta borrada es la que hizo la acción: siguen
 apareciéndole a quien las recibió, con su handle.
 
+### Nuevo seguidor
+
+Cuando `posts-api` publica `follow.created.v1` (`E4-H1`), el servicio deja la notificación en el
+centro de la cuenta seguida (`type: follow`, el `id` del evento como `_id`) y le manda un push a
+cada uno de sus dispositivos (`device_tokens` sin `deleted_at`):
+
+| Campo del push | Valor                                                                     |
+| -------------- | ------------------------------------------------------------------------- |
+| Título         | `Nuevo seguidor`                                                          |
+| Texto          | `@<handle> te empezó a seguir`, o `Alguien te empezó a seguir` sin handle |
+| `data.type`    | `follow`                                                                  |
+| `data.actorId` | `id` de quien empezó a seguir: la app abre su perfil al tocarlo (CA.2)    |
+
+La notificación del centro es también la marca de idempotencia: el `insertOne` con `_id` único
+dice si el evento es nuevo. Como no hay transacciones entre documentos, el orden importa:
+
+1. Se leen los tokens de la cuenta seguida. Si MongoDB falla acá, el mensaje vuelve a la cola sin
+   que se haya hecho nada.
+2. Se agrega la notificación. Si ya existía, el evento es repetido: se confirma (`ack`) sin
+   mandar nada.
+3. Se manda el push.
+
+Si el proceso se cae entre el paso 2 y el 3, ese push se pierde y la notificación queda en el
+centro. Se acepta a propósito: la alternativa, registrar después de mandar, repite el push cada
+vez que el mismo evento se atiende dos veces. Un push que FCM no puede recibir se loguea y se
+confirma, sin reintento, igual que los mails. Sin dispositivos, queda solo la notificación del
+centro. Un mensaje sin `id`, `time`, `data.follower_id` o `data.followee_id` va a la DLQ;
+`follower_handle` puede faltar o ser `null`.
+
+Con `PUSH_PROVIDER=console` el push sale en el log del servicio, con la cantidad de dispositivos
+pero sin los tokens.
+
+Los tokens de una cuenta se leen con el índice `{ account_id: 1, deleted_at: 1 }` de
+`device_tokens`, que el servicio crea al arrancar igual que el del centro: si MongoDB no responde
+en ese momento, lo deja en el log y sigue.
+
 ### Mandar un evento a mano
 
 Con el compose levantado, desde la interfaz de administración (`Exchanges > udesa-x.events > Publish message`) se publica con la routing key igual al `type` y el sobre
 como payload; los ejemplos están en `contracts/events/`. Con `EMAIL_PROVIDER=console` el mail
-sale en el log del servicio, y repetir el mismo `id` no genera un segundo mail.
+sale en el log del servicio, y repetir el mismo `id` no genera un segundo mail. Con
+`PUSH_PROVIDER=console` pasa lo mismo con el push de un `follow.created.v1`, siempre que la cuenta
+seguida tenga un token registrado.
 
 ## Tests
 
@@ -329,9 +370,14 @@ Los tests del consumidor arman sus mensajes con los `examples` de `contracts/eve
 validan contra el esquema con `ajv` y `ajv-formats` (ADR-017). La integración publica en el
 exchange real y comprueba el flujo completo: el mismo evento dos veces manda un solo mail y deja
 un documento `sent`, la cola es `quorum` con sus bindings, un `user.deleted.v1` publicado borra
-las notificaciones de la cuenta y los mensajes inválidos llegan a la DLQ. Usa la cola
-`notifications-api`, así que no corre bien contra un broker donde ya esté consumiendo una
-instancia del servicio.
+las notificaciones de la cuenta, un `follow.created.v1` publicado deja la notificación y manda el
+push, y los mensajes inválidos llegan a la DLQ. Usa la cola `notifications-api`, así que no corre
+bien contra un broker donde ya esté consumiendo una instancia del servicio.
+
+El push de un nuevo seguidor se prueba contra MongoDB real (`tests/integration/follow-created.test.ts`)
+con FCM como doble: a qué tokens va, el payload, la notificación del centro y que un evento
+repetido no mande un segundo push. El adaptador de FCM se prueba con un cliente falso
+(`tests/unit/push-senders.test.ts`).
 
 El centro de notificaciones se prueba entero contra MongoDB real (`tests/integration/notifications-*`):
 la app con el store de verdad, el orden y el cursor entre páginas, el desempate por id y que

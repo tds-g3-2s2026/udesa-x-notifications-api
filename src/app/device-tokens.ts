@@ -16,6 +16,8 @@ export interface DeviceTokenStore {
    * Repeating the call changes nothing else.
    */
   register(token: string, accountId: string, at: Date): Promise<void>;
+  /** The tokens of the account that are not deleted: where its pushes go. */
+  activeTokensOf(accountId: string): Promise<string[]>;
   /**
    * Marks every token of the account deleted at `at`, for when the account is
    * deleted. Tokens already deleted keep their date.

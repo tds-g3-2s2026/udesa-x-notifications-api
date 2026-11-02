@@ -76,6 +76,7 @@ describe('event consumer setup', () => {
       ['notifications-api', 'udesa-x.events', 'password.reset_requested.v1'],
       ['notifications-api', 'udesa-x.events', 'password.changed.v1'],
       ['notifications-api', 'udesa-x.events', 'user.deleted.v1'],
+      ['notifications-api', 'udesa-x.events', 'follow.created.v1'],
     ]);
   });
 

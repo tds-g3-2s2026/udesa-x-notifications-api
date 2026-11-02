@@ -4,9 +4,14 @@ import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-proto';
 import { createApp } from './api/app';
 import { createEmailEventHandler } from './app/email-events';
 import { routeEvents } from './app/events';
+import { createFollowCreatedHandler } from './app/follows';
 import { createUserDeletedHandler } from './app/user-deletion';
 import { loadConfig } from './config';
-import { createDeviceTokenStore, deviceTokenCollection } from './infrastructure/device-token-store';
+import {
+  createDeviceTokenStore,
+  deviceTokenCollection,
+  ensureDeviceTokenIndexes,
+} from './infrastructure/device-token-store';
 import { createEmailSender } from './infrastructure/email-senders';
 import { createEmailStore, emailCollection } from './infrastructure/email-store';
 import { createEventConsumer } from './infrastructure/event-consumer';
@@ -20,6 +25,7 @@ import {
   createProcessedEventStore,
   processedEventCollection,
 } from './infrastructure/processed-event-store';
+import { createPushSender } from './infrastructure/push-senders';
 import { connectRabbitMQ } from './infrastructure/rabbitmq';
 import { logEvent, startTelemetry } from './infrastructure/telemetry';
 
@@ -37,17 +43,23 @@ const telemetry = startTelemetry(
 
 const mongo = createMongoClient(config.mongodbUrl);
 const notifications = notificationCollection(mongo);
+const deviceTokens = deviceTokenCollection(mongo);
 
-// Not awaited: the service starts with MongoDB down. Without the index the
-// listing still answers, only slower, until a restart creates it.
+// Not awaited: the service starts with MongoDB down. Without the indexes the
+// reads still answer, only slower, until a restart creates them.
 ensureNotificationIndexes(notifications).catch((error: unknown) =>
   logEvent('warn', 'Could not create the notifications index', {
     error: error instanceof Error ? error.message : String(error),
   })
 );
+ensureDeviceTokenIndexes(deviceTokens).catch((error: unknown) =>
+  logEvent('warn', 'Could not create the device tokens index', {
+    error: error instanceof Error ? error.message : String(error),
+  })
+);
 
 const notificationStore = createNotificationStore(notifications);
-const deviceTokenStore = createDeviceTokenStore(deviceTokenCollection(mongo));
+const deviceTokenStore = createDeviceTokenStore(deviceTokens);
 
 // Starts consuming as soon as RabbitMQ is reachable, and again after every
 // reconnection.
@@ -61,6 +73,11 @@ const consumer = createEventConsumer(
       deviceTokens: deviceTokenStore,
       notifications: notificationStore,
       processedEvents: createProcessedEventStore(processedEventCollection(mongo)),
+    }),
+    followCreated: createFollowCreatedHandler({
+      notifications: notificationStore,
+      deviceTokens: deviceTokenStore,
+      push: createPushSender(config.push),
     }),
   })
 );
