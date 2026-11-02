@@ -12,6 +12,7 @@ function fakeStore() {
   return {
     register: vi.fn<DeviceTokenStore['register']>(async () => {}),
     activeTokensOf: vi.fn(),
+    softDelete: vi.fn(),
     softDeleteOwnedBy: vi.fn(),
   } satisfies DeviceTokenStore;
 }

@@ -6,7 +6,9 @@ import type { NotificationStore } from '../../src/app/notifications';
 import type { PushSender } from '../../src/app/push';
 import { exampleEvent } from '../support/contracts';
 
-function setup({ tokens = ['phone', 'tablet'], isNew = true } = {}) {
+const NOW = new Date('2026-11-02T12:00:00Z');
+
+function setup({ tokens = ['phone', 'tablet'], isNew = true, invalid = [] as string[] } = {}) {
   const calls: string[] = [];
   const deviceTokens = {
     register: vi.fn(),
@@ -14,6 +16,7 @@ function setup({ tokens = ['phone', 'tablet'], isNew = true } = {}) {
       calls.push('tokens');
       return tokens;
     }),
+    softDelete: vi.fn<DeviceTokenStore['softDelete']>(async () => {}),
     softDeleteOwnedBy: vi.fn(),
   } satisfies DeviceTokenStore;
   const notifications = {
@@ -29,10 +32,10 @@ function setup({ tokens = ['phone', 'tablet'], isNew = true } = {}) {
   const push = {
     send: vi.fn<PushSender['send']>(async () => {
       calls.push('push');
-      return { invalidTokens: [] };
+      return { invalidTokens: invalid };
     }),
   } satisfies PushSender;
-  const handle = createFollowCreatedHandler({ notifications, deviceTokens, push });
+  const handle = createFollowCreatedHandler({ notifications, deviceTokens, push, now: () => NOW });
   return { handle, deviceTokens, notifications, push, calls };
 }
 
@@ -131,8 +134,43 @@ describe('follow.created handler', () => {
     expect(push.send).not.toHaveBeenCalled();
   });
 
+  it('E4-H1.CA4 marks deleted the tokens FCM says no longer exist, and only those', async () => {
+    const { handle, deviceTokens } = setup({ invalid: ['tablet'] });
+
+    await expect(handle(JSON.stringify(event()))).resolves.toBe('ack');
+
+    expect(deviceTokens.softDelete).toHaveBeenCalledExactlyOnceWith(['tablet'], NOW);
+  });
+
+  it('touches no token when FCM reported none gone', async () => {
+    const { handle, deviceTokens } = setup();
+
+    await handle(JSON.stringify(event()));
+
+    expect(deviceTokens.softDelete).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['an Error', new Error('MongoDB is down'), 'MongoDB is down'],
+    ['something else', 'connection reset', 'unknown error'],
+  ])(
+    'acks and logs when marking the gone tokens fails with %s: the next push reports them again',
+    async (_, failure, logged) => {
+      const { handle, deviceTokens } = setup({ invalid: ['tablet'] });
+      deviceTokens.softDelete.mockRejectedValueOnce(failure);
+      const follow = event();
+
+      await expect(handle(JSON.stringify(follow))).resolves.toBe('ack');
+
+      expect(console.warn).toHaveBeenCalledWith('Could not soft-delete invalid device tokens', {
+        id: follow.id,
+        error: logged,
+      });
+    }
+  );
+
   it('acks and logs when the push cannot go out, without retrying', async () => {
-    const { handle, push } = setup();
+    const { handle, deviceTokens, push } = setup();
     push.send.mockRejectedValueOnce(new Error('getaddrinfo ENOTFOUND fcm.googleapis.com'));
     const follow = event();
 
@@ -143,6 +181,7 @@ describe('follow.created handler', () => {
       type: 'follow.created.v1',
       error: 'getaddrinfo ENOTFOUND fcm.googleapis.com',
     });
+    expect(deviceTokens.softDelete).not.toHaveBeenCalled();
   });
 
   it('throws, so the message is requeued, and adds nothing when the tokens cannot be read', async () => {

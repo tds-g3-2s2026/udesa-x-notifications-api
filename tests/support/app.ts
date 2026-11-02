@@ -16,6 +16,7 @@ const NO_NOTIFICATIONS: NotificationStore = {
 const NO_DEVICE_TOKENS: DeviceTokenStore = {
   register: noStore('device token'),
   activeTokensOf: noStore('device token'),
+  softDelete: noStore('device token'),
   softDeleteOwnedBy: noStore('device token'),
 };
 
