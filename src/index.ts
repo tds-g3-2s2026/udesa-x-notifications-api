@@ -47,6 +47,7 @@ ensureNotificationIndexes(notifications).catch((error: unknown) =>
 );
 
 const notificationStore = createNotificationStore(notifications);
+const deviceTokenStore = createDeviceTokenStore(deviceTokenCollection(mongo));
 
 // Starts consuming as soon as RabbitMQ is reachable, and again after every
 // reconnection.
@@ -57,7 +58,7 @@ const consumer = createEventConsumer(
       sender: createEmailSender(config.email),
     }),
     userDeleted: createUserDeletedHandler({
-      deviceTokens: createDeviceTokenStore(deviceTokenCollection(mongo)),
+      deviceTokens: deviceTokenStore,
       notifications: notificationStore,
       processedEvents: createProcessedEventStore(processedEventCollection(mongo)),
     }),
@@ -69,6 +70,7 @@ const app = createApp({
   healthChecks: [mongodbCheck(mongo), rabbitmq],
   auth: config.auth,
   notifications: notificationStore,
+  deviceTokens: deviceTokenStore,
 });
 
 // Kubernetes sends SIGTERM before stopping the pod: the consumer finishes the

@@ -1,3 +1,9 @@
+/** One rejected field of a request, so the client can mark that input. */
+export interface FieldError {
+  field: string;
+  message: string;
+}
+
 /**
  * An error that becomes a Problem Details response.
  *
@@ -11,6 +17,8 @@ export class ProblemError extends Error {
   readonly title: string;
   readonly detail: string;
   readonly headers: Record<string, string>;
+  /** Only on a validation failure: one entry per rejected field. */
+  readonly errors: FieldError[] | undefined;
 
   constructor(options: {
     status: number;
@@ -18,6 +26,7 @@ export class ProblemError extends Error {
     title: string;
     detail: string;
     headers?: Record<string, string>;
+    errors?: FieldError[];
   }) {
     super(options.detail);
     this.name = 'ProblemError';
@@ -26,5 +35,6 @@ export class ProblemError extends Error {
     this.title = options.title;
     this.detail = options.detail;
     this.headers = options.headers ?? {};
+    this.errors = options.errors;
   }
 }
