@@ -13,6 +13,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import type { EmailMessage, EmailSender } from '../../src/app/email';
 import { createEmailEventHandler, EMAIL_EVENT_TYPES } from '../../src/app/email-events';
 import { routeEvents } from '../../src/app/events';
+import { createFollowCreatedHandler } from '../../src/app/follows';
+import type { PushSender } from '../../src/app/push';
 import { createUserDeletedHandler } from '../../src/app/user-deletion';
 import {
   createDeviceTokenStore,
@@ -41,8 +43,8 @@ import { aNotification } from '../support/notifications';
 
 // The whole flow against real RabbitMQ and MongoDB: a message published to the
 // exchange, routed by its type to the service's queue, consumed, deduplicated
-// and recorded. Only the email sender is a double. It consumes the real queue
-// name, so it cannot share a broker with a running notifications-api.
+// and recorded. Only the email and push senders are doubles. It consumes the
+// real queue name, so it cannot share a broker with a running notifications-api.
 const { MONGODB_URL, RABBITMQ_URL } = process.env;
 if (!MONGODB_URL || !RABBITMQ_URL) {
   throw new Error('tests/integration needs MONGODB_URL and RABBITMQ_URL');
@@ -52,6 +54,15 @@ const sent: EmailMessage[] = [];
 const sender: EmailSender = {
   async send(message) {
     sent.push(message);
+  },
+};
+
+/** The tokens of every push, in the order they went out. */
+const pushed: string[][] = [];
+const push: PushSender = {
+  async send(tokens) {
+    pushed.push(tokens);
+    return { invalidTokens: [] };
   },
 };
 
@@ -87,12 +98,18 @@ const publishEvent = (event: EventEnvelope) => publish(event.type, JSON.stringif
 
 beforeAll(async () => {
   mongo = createMongoClient(MONGODB_URL);
+  const deviceTokens = createDeviceTokenStore(deviceTokenCollection(mongo));
   const handler = routeEvents({
     email: createEmailEventHandler({ store: createEmailStore(emails()), sender }),
     userDeleted: createUserDeletedHandler({
-      deviceTokens: createDeviceTokenStore(deviceTokenCollection(mongo)),
+      deviceTokens,
       notifications: createNotificationStore(notifications()),
       processedEvents: createProcessedEventStore(processedEventCollection(mongo)),
+    }),
+    followCreated: createFollowCreatedHandler({
+      notifications: createNotificationStore(notifications()),
+      deviceTokens,
+      push,
     }),
   });
   consumerConnection = await connectRabbitMQ(RABBITMQ_URL, createEventConsumer(handler).setup);
@@ -108,6 +125,7 @@ beforeEach(() => {
   vi.spyOn(console, 'info').mockImplementation(() => {});
   vi.spyOn(console, 'warn').mockImplementation(() => {});
   sent.length = 0;
+  pushed.length = 0;
   returned.length = 0;
 });
 
@@ -115,6 +133,7 @@ afterAll(async () => {
   await emails().deleteMany({ _id: { $in: createdIds } });
   await notifications().deleteMany({ recipient_id: { $in: deletedAccounts } });
   await processedEventCollection(mongo).deleteMany({ _id: { $in: createdIds } });
+  await deviceTokenCollection(mongo).deleteMany({ account_id: { $in: deletedAccounts } });
   await Promise.allSettled([
     consumerConnection.close(),
     publisherConnection.close(),
@@ -177,6 +196,27 @@ describe('user.deleted across the broker', () => {
       },
       { timeout: 10_000, interval: 50 }
     );
+    expect(returned).toHaveLength(0);
+    expect(sent).toHaveLength(0);
+  });
+});
+
+describe('follow.created across the broker', () => {
+  it('is bound to follow.created.v1, adds the entry and pushes to the followed account', async () => {
+    const account = randomUUID();
+    deletedAccounts.push(account);
+    const token = `fcm-${randomUUID()}`;
+    await createDeviceTokenStore(deviceTokenCollection(mongo)).register(token, account, new Date());
+    const event = newEvent('follow.created.v1');
+    event.data.followee_id = account;
+
+    await publishEvent(event);
+
+    await vi.waitFor(() => expect(pushed).toEqual([[token]]), { timeout: 10_000, interval: 50 });
+    expect(await notifications().findOne({ _id: event.id })).toMatchObject({
+      recipient_id: account,
+      type: 'follow',
+    });
     expect(returned).toHaveLength(0);
     expect(sent).toHaveLength(0);
   });

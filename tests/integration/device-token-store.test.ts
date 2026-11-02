@@ -4,8 +4,10 @@ import type { MongoClient } from 'mongodb';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import {
+  activeTokensFilter,
   createDeviceTokenStore,
   deviceTokenCollection,
+  ensureDeviceTokenIndexes,
 } from '../../src/infrastructure/device-token-store';
 import { createMongoClient } from '../../src/infrastructure/mongodb';
 
@@ -27,8 +29,9 @@ function newToken(): string {
   return token;
 }
 
-beforeAll(() => {
+beforeAll(async () => {
   mongo = createMongoClient(MONGODB_URL);
+  await ensureDeviceTokenIndexes(tokens());
 });
 
 afterAll(async () => {
@@ -117,5 +120,28 @@ describe('device token store', () => {
       account_id: next,
       deleted_at: null,
     });
+  });
+
+  it('reads the tokens of an account from the index, without scanning the collection', async () => {
+    const plan = await tokens().find(activeTokensFilter(randomUUID())).explain();
+
+    const winning = JSON.stringify(plan.queryPlanner.winningPlan);
+    expect(winning).toContain('account_id_1_deleted_at_1');
+    expect(winning).not.toContain('COLLSCAN');
+  });
+
+  it('lists the tokens an account can be pushed to, leaving out the deleted and the moved', async () => {
+    const store = createDeviceTokenStore(tokens());
+    const [phone, tablet, moved, other] = [newToken(), newToken(), newToken(), newToken()];
+    const [account, someoneElse] = [randomUUID(), randomUUID()];
+    const at = new Date('2026-10-25T12:00:00Z');
+    for (const token of [phone, tablet, moved]) {
+      await store.register(token, account, at);
+    }
+    await store.register(other, someoneElse, at);
+    await store.register(moved, someoneElse, new Date('2026-10-26T12:00:00Z'));
+    await tokens().updateOne({ _id: tablet }, { $set: { deleted_at: at } });
+
+    expect(await store.activeTokensOf(account)).toEqual([phone]);
   });
 });
