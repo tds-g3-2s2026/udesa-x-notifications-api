@@ -32,8 +32,9 @@ docker compose -f docker/docker-compose.dev.yml --profile test run --rm tests   
 - `src/index.ts` es el único módulo que conoce las implementaciones concretas: abre las
   conexiones y se las pasa a `createApp`. Los tests arman la app con dobles por la misma puerta.
 - `MONGODB_URL`, `RABBITMQ_URL` y `JWT_PUBLIC_KEY` son obligatorias: sin alguna, el proceso no
-  arranca. Con `EMAIL_PROVIDER=resend` también lo es `RESEND_API_KEY`; el default es `console`,
-  que imprime el mail en el log en vez de mandarlo.
+  arranca. Con `EMAIL_PROVIDER=resend` también lo es `RESEND_API_KEY`, y con `PUSH_PROVIDER=fcm`,
+  `FIREBASE_SERVICE_ACCOUNT`. Los dos defaults son `console`: imprimen el mail o el push en el
+  log en vez de mandarlo.
 - Rutas de la app bajo `/api/notifications`, la que el gateway rutea a este servicio. Cada una
   pasa por `requireAccount` (`src/api/auth.ts`): firma, vencimiento y emisor del JWT de
   `users-api`, sin revisar revocaciones (decisión D1 de E4-H1). La cuenta sale siempre del
