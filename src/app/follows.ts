@@ -80,14 +80,17 @@ function parseFollowCreated(body: string): FollowCreated | { error: string } {
  * repeats the push whenever the same event is handled twice.
  *
  * A push the provider refuses is not retried: it is logged and the message
- * acked, as with emails.
+ * acked, as with emails. The tokens FCM says no longer exist are marked
+ * deleted afterwards (E4-H1 CA.4); if that fails it is only logged, since the
+ * next push to the account reports them again.
  */
 export function createFollowCreatedHandler(deps: {
   notifications: NotificationStore;
   deviceTokens: DeviceTokenStore;
   push: PushSender;
+  now?: () => Date;
 }) {
-  const { notifications, deviceTokens, push } = deps;
+  const { notifications, deviceTokens, push, now = () => new Date() } = deps;
 
   return async function handle(body: string): Promise<HandlerResult> {
     const event = parseFollowCreated(body);
@@ -119,15 +122,16 @@ export function createFollowCreatedHandler(deps: {
       return 'ack';
     }
 
+    let invalidTokens: string[];
     try {
-      await push.send(tokens, {
+      ({ invalidTokens } = await push.send(tokens, {
         title: 'Nuevo seguidor',
         body: followerHandle
           ? `@${followerHandle} te empezó a seguir`
           : 'Alguien te empezó a seguir',
         // What the app opens on a tap: the follower's profile (E4-H1 CA.2).
         data: { type: 'follow', actorId: followerId },
-      });
+      }));
     } catch (error) {
       logEvent('warn', 'Push not sent', {
         id,
@@ -137,6 +141,21 @@ export function createFollowCreatedHandler(deps: {
       return 'ack';
     }
     logEvent('info', 'Push sent', { id, type: FOLLOW_CREATED, devices: String(tokens.length) });
+
+    if (invalidTokens.length > 0) {
+      try {
+        await deviceTokens.softDelete(invalidTokens, now());
+        logEvent('info', 'Invalid device tokens soft-deleted', {
+          id,
+          count: String(invalidTokens.length),
+        });
+      } catch (error) {
+        logEvent('warn', 'Could not soft-delete invalid device tokens', {
+          id,
+          error: error instanceof Error ? error.message : 'unknown error',
+        });
+      }
+    }
     return 'ack';
   };
 }

@@ -333,6 +333,14 @@ confirma, sin reintento, igual que los mails. Sin dispositivos, queda solo la no
 centro. Un mensaje sin `id`, `time`, `data.follower_id` o `data.followee_id` va a la DLQ;
 `follower_handle` puede faltar o ser `null`.
 
+Si FCM responde que un token ya no existe (`registration-token-not-registered` o
+`invalid-registration-token`: la app se desinstaló, el token venció o nunca fue uno), después del
+push se le pone `deleted_at` (CA.4). Como todo borrado del servicio, es lógico: el documento
+queda, no recibe más push y vuelve a estar vivo si ese dispositivo se registra de nuevo. Cualquier
+otro error de FCM (cuota, una caída) no dice nada del dispositivo: se loguea con su código, sin el
+token, y el token sigue. Si MongoDB falla al marcarlos, se loguea y se confirma igual: el próximo
+push a esa cuenta los vuelve a reportar.
+
 Con `PUSH_PROVIDER=console` el push sale en el log del servicio, con la cantidad de dispositivos
 pero sin los tokens.
 

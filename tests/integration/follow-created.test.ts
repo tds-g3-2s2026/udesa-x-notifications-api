@@ -151,4 +151,17 @@ describe('follow.created against MongoDB', () => {
     expect(sent).toHaveLength(1);
     expect(await notifications().countDocuments({ _id: event.id })).toBe(1);
   });
+
+  it('E4-H1.CA4 token inválido se elimina', async () => {
+    const followee = newAccount();
+    const [live, gone] = [await newDevice(followee), await newDevice(followee)];
+    const { push } = fakePush(() => ({ invalidTokens: [gone] }));
+
+    await handler(push)(JSON.stringify(followOf(followee)));
+
+    // Logical, like every deletion in the service: the document stays, marked.
+    expect((await tokens().findOne({ _id: gone }))?.deleted_at).toEqual(expect.any(Date));
+    expect((await tokens().findOne({ _id: live }))?.deleted_at).toBeNull();
+    expect(await createDeviceTokenStore(tokens()).activeTokensOf(followee)).toEqual([live]);
+  });
 });

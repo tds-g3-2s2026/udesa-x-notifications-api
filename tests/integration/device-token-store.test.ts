@@ -144,4 +144,19 @@ describe('device token store', () => {
 
     expect(await store.activeTokensOf(account)).toEqual([phone]);
   });
+
+  it('marks the given tokens deleted, keeping the first date and touching no other', async () => {
+    const store = createDeviceTokenStore(tokens());
+    const [gone, live] = [newToken(), newToken()];
+    const account = randomUUID();
+    await store.register(gone, account, new Date('2026-10-25T12:00:00Z'));
+    await store.register(live, account, new Date('2026-10-25T12:00:00Z'));
+    const first = new Date('2026-10-27T08:00:00Z');
+
+    await store.softDelete([gone], first);
+    await store.softDelete([gone], new Date('2026-10-28T08:00:00Z'));
+
+    expect((await tokens().findOne({ _id: gone }))?.deleted_at).toEqual(first);
+    expect((await tokens().findOne({ _id: live }))?.deleted_at).toBeNull();
+  });
 });
