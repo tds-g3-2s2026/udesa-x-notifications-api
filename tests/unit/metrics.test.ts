@@ -177,8 +177,10 @@ describe('HTTP metrics', () => {
     const service = app();
     service.all('/api/notifications/:id', (c) => c.json({ ok: true }));
 
-    for (const method of ['PURGE', 'CUSTOM-VERB']) {
-      const response = await service.request('/api/notifications/private-id', { method });
+    for (const method of ['PURGE', 'PROPFIND']) {
+      const request = new Request('http://localhost/api/notifications/private-id', { method });
+      expect(request.method).toBe(method);
+      const response = await service.request(request);
       expect(response.status).toBe(200);
     }
 
