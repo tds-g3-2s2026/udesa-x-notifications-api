@@ -18,6 +18,10 @@ services:
       EMAIL_PROVIDER: ${EMAIL_PROVIDER:-console}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       EMAIL_FROM: ${EMAIL_FROM:-}
+      # Pushes are printed to the log too. To send them through FCM, export
+      # PUSH_PROVIDER=fcm and FIREBASE_SERVICE_ACCOUNT with the key file's JSON.
+      PUSH_PROVIDER: ${PUSH_PROVIDER:-console}
+      FIREBASE_SERVICE_ACCOUNT: ${FIREBASE_SERVICE_ACCOUNT:-}
       # Development only, and only the public half: it lets the service start.
       # To call /api/notifications by hand, sign a token with your own Ed25519
       # pair (posts-api's scripts/dev_token.py prints one) and put its public
