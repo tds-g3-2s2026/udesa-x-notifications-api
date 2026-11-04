@@ -72,6 +72,17 @@ sí lo revisa (ADR-014); acá se acepta esa ventana a propósito. Un token invá
 con `code: invalid-token`, igual que `users-api` y `posts-api`. La cuenta sale siempre del `sub`
 del token: ninguna ruta deja nombrar otra.
 
+### Registro del dispositivo
+
+`POST /api/notifications/device-tokens` con `{ "token": "<token de FCM>" }` responde `204` sin
+cuerpo. La app lo llama después de cada login exitoso, también si el token no cambió (`E4-H1`
+CA.3): así el token queda a nombre de la cuenta que inició sesión última en ese dispositivo, y
+uno que se había borrado vuelve a estar vivo. Repetirlo no cambia nada más que la fecha.
+
+Un cuerpo que no es JSON, sin `token`, con uno que no es texto, vacío o de más de 4096
+caracteres responde `422` con `code: validation-failed` y
+`errors: [{ "field": "token", ... }]`, como el formato de validación de `ARQUITECTURA.md`.
+
 ### Centro de notificaciones
 
 | Ruta                                | Responde                                                                  |
