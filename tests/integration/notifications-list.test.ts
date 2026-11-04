@@ -135,8 +135,8 @@ describe('notification store', () => {
     const store = createNotificationStore(notifications());
     const notification = aNotification(account);
 
-    await store.add(notification);
-    await store.add({ ...notification, type: 'retweet' });
+    await expect(store.add(notification)).resolves.toBe(true);
+    await expect(store.add({ ...notification, type: 'retweet' })).resolves.toBe(false);
 
     expect(await notifications().countDocuments({ _id: notification.id })).toBe(1);
     expect(await notifications().findOne({ _id: notification.id })).toEqual({

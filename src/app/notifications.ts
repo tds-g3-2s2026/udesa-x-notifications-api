@@ -34,8 +34,11 @@ export interface PagePosition {
  * `deleted_at` and every read leaves it out from then on.
  */
 export interface NotificationStore {
-  /** Stores a new, unread notification. When the id is already there nothing changes. */
-  add(notification: Omit<Notification, 'readAt'>): Promise<void>;
+  /**
+   * Stores a new, unread notification and answers true. When the id is already
+   * there nothing changes and it answers false: the same event came again.
+   */
+  add(notification: Omit<Notification, 'readAt'>): Promise<boolean>;
   /**
    * Up to `limit` notifications of the account that are not deleted, newest
    * first and, with `after`, strictly after that position.

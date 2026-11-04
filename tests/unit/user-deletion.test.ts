@@ -11,6 +11,8 @@ function setup({ processed = false } = {}) {
   const calls: string[] = [];
   const deviceTokens = {
     register: vi.fn(),
+    activeTokensOf: vi.fn(),
+    softDelete: vi.fn(),
     softDeleteOwnedBy: vi.fn<DeviceTokenStore['softDeleteOwnedBy']>(async () => {
       calls.push('tokens');
     }),

@@ -88,11 +88,13 @@ export function createNotificationStore(
           read_at: null,
           deleted_at: null,
         });
+        return true;
       } catch (error) {
         // Already there: the same event delivered again.
         if (!(error instanceof MongoServerError && error.code === DUPLICATE_KEY)) {
           throw error;
         }
+        return false;
       }
     },
 
