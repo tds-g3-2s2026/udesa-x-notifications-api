@@ -188,13 +188,15 @@ Son 25, así que la primera página trae 20 y un `nextCursor`, y la segunda las 
 | `EMAIL_PROVIDER`              | `console`                       | `console` imprime el mail en el log; `resend` lo manda (ADR-010)        |
 | `RESEND_API_KEY`              | sin definir                     | Clave de Resend. Obligatoria con `EMAIL_PROVIDER=resend`                |
 | `EMAIL_FROM`                  | `UdeSA-X <no-reply@udesax.app>` | Remitente; el dominio `udesax.app` está verificado en Resend            |
+| `SUPPORT_EMAIL`               | `support@example.com`           | Casilla de soporte. Obligatoria con `EMAIL_PROVIDER=resend`             |
 | `PUSH_PROVIDER`               | `console`                       | `console` imprime el push en el log; `fcm` lo manda por FCM             |
 | `FIREBASE_SERVICE_ACCOUNT`    | sin definir                     | JSON entero del service account de Firebase. Obligatoria con `fcm`      |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | sin definir                     | Si está, manda trazas, logs y métricas por OTLP (ADR-013)               |
 
 Sin `MONGODB_URL`, `RABBITMQ_URL` o `JWT_PUBLIC_KEY` el proceso no arranca y dice cuál falta. Con
-`EMAIL_PROVIDER=resend` y sin `RESEND_API_KEY` tampoco arranca: sin clave, cada mail fallaría
-recién con el primer evento. Un `EMAIL_PROVIDER` desconocido también lo frena. Lo mismo con
+`EMAIL_PROVIDER=resend` y sin `RESEND_API_KEY` o `SUPPORT_EMAIL` tampoco arranca: sin ellas, un
+mail fallaría recién con el primer evento. El default de `SUPPORT_EMAIL` es solo para la consola,
+que no entrega nada. Un `EMAIL_PROVIDER` desconocido también lo frena. Lo mismo con
 `PUSH_PROVIDER=fcm`: sin `FIREBASE_SERVICE_ACCOUNT`, o con uno que no es JSON, al que le falta
 `project_id`, `client_email` o `private_key`, o cuya `private_key` no se puede leer, no arranca.
 El error nunca muestra el contenido, porque trae la clave privada.
@@ -212,9 +214,16 @@ su `id` es la clave de idempotencia.
 | `email_verification.requested.v1` | Verificación (reenvío del link)                       | `user_id`, `email`, `verification_url` |
 | `password.reset_requested.v1`     | Recuperación: "Recuperá tu contraseña de UdeSA-X"     | `user_id`, `email`, `token`            |
 | `password.changed.v1`             | Aviso: "La contraseña de tu cuenta de UdeSA-X cambió" | `user_id`, `email`                     |
+| `feedback.submitted.v1`           | A soporte: "Nuevo comentario desde la app de UdeSA-X" | Todos los de `data`                    |
 
 `verification_url` y `token` son secretos: no se loguean, no se guardan y no viajan en un error.
 Solo el adaptador de consola de desarrollo los imprime, porque ese es su trabajo.
+
+`feedback.submitted.v1` es el único que no va a la cuenta del evento: va a `SUPPORT_EMAIL`.
+`message`, `device_os` y `app_version` son lo que mandó la app, así que son contenido no confiable.
+El mail es solo texto plano, ninguno de esos datos va en el asunto y en el cuerpo van debajo de la
+cuenta real.
+Tampoco se loguean ni se guardan acá: el registro del comentario queda en `users-api`.
 
 También consume `user.deleted.v1` (campo `user_id`), que no manda mail: borra lógicamente lo que
 el servicio guarda de esa cuenta. Está más abajo, en "Cuenta eliminada". Y `follow.created.v1`
@@ -230,7 +239,7 @@ corre el `setup` después de cada conexión exitosa, y también vuelve a registr
 | ------------------------ | ----------------------- | --------------------------------------------------------------------------- |
 | Exchange de eventos      | `udesa-x.events`        | `topic`, durable. Lo declara también `users-api`, con los mismos argumentos |
 | Cola del servicio        | `notifications-api`     | `quorum`, durable, `x-dead-letter-exchange: udesa-x.events.dlx`             |
-| Bindings de la cola      | las 6 routing keys      | Las 4 de los emails, `user.deleted.v1` y `follow.created.v1`                |
+| Bindings de la cola      | las 7 routing keys      | Las 5 de los emails, `user.deleted.v1` y `follow.created.v1`                |
 | Exchange de rechazados   | `udesa-x.events.dlx`    | `fanout`, durable                                                           |
 | Cola de rechazados (DLQ) | `notifications-api.dlq` | `quorum`, durable, ligada al DLX                                            |
 

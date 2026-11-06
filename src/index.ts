@@ -73,6 +73,7 @@ const consumer = createEventConsumer(
     email: createEmailEventHandler({
       store: createEmailStore(emailCollection(mongo)),
       sender: createEmailSender(config.email),
+      supportEmail: config.email.supportEmail,
     }),
     userDeleted: createUserDeletedHandler({
       deviceTokens: deviceTokenStore,

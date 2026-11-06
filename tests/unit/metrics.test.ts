@@ -247,6 +247,7 @@ describe('email metrics', () => {
     ['email_verification.requested.v1', 'verification'],
     ['password.reset_requested.v1', 'password_reset'],
     ['password.changed.v1', 'password_changed'],
+    ['feedback.submitted.v1', 'feedback'],
   ])('counts an actual %s send once when a duplicate is discarded', async (type, template) => {
     let delivered = false;
     const store: EmailStore = {
@@ -256,7 +257,7 @@ describe('email metrics', () => {
       },
     };
     const sender = { send: vi.fn(async () => {}) };
-    const handle = createEmailEventHandler({ store, sender });
+    const handle = createEmailEventHandler({ store, sender, supportEmail: 'support@udesax.test' });
     const body = JSON.stringify(exampleEvent(type));
     await handle(body);
     await handle(body);
@@ -275,6 +276,7 @@ describe('email metrics', () => {
           throw new Error('provider down');
         },
       },
+      supportEmail: 'support@udesax.test',
     });
     expect(await handle(JSON.stringify(exampleEvent('password.changed.v1')))).toBe('ack');
     const values = await metrics();
@@ -296,6 +298,7 @@ describe('email metrics', () => {
         },
       },
       sender: { send: async () => {} },
+      supportEmail: 'support@udesax.test',
     });
     await expect(handle(JSON.stringify(exampleEvent('password.changed.v1')))).rejects.toThrow(
       'store down'

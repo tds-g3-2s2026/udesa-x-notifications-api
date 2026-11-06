@@ -1,6 +1,11 @@
 import { logEvent, recordEmailResult } from '../infrastructure/telemetry';
 import type { EmailMessage, EmailSender, EmailTemplate } from './email';
-import { passwordChangedEmail, passwordResetEmail, verificationEmail } from './email-templates';
+import {
+  feedbackEmail,
+  passwordChangedEmail,
+  passwordResetEmail,
+  verificationEmail,
+} from './email-templates';
 import type { HandlerResult } from './events';
 
 export type EmailStatus = 'pending' | 'sent' | 'failed';
@@ -36,6 +41,8 @@ interface EventKind {
   template: EmailTemplate;
   /** Fields of `data` the email needs, besides `user_id` and `email`. */
   fields: string[];
+  /** Goes to the team's support mailbox: the event has no `email` to send it to. */
+  toSupport?: true;
   render(to: string, data: Record<string, string>): EmailMessage;
 }
 
@@ -60,6 +67,20 @@ const EVENT_KINDS: Record<string, EventKind> = {
     template: 'password_changed',
     fields: [],
     render: (to) => passwordChangedEmail(to),
+  },
+  'feedback.submitted.v1': {
+    template: 'feedback',
+    fields: ['feedback_id', 'handle', 'message', 'device_os', 'app_version'],
+    toSupport: true,
+    render: (to, data) =>
+      feedbackEmail(to, {
+        feedbackId: data.feedback_id,
+        userId: data.user_id,
+        handle: data.handle,
+        message: data.message,
+        deviceOs: data.device_os,
+        appVersion: data.app_version,
+      }),
   },
 };
 
@@ -87,7 +108,10 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 }
 
 // Failures name the field or the type, never a value: the data carries secrets.
-function parseEvent(body: string): ParsedEvent | { error: string; type?: string } {
+function parseEvent(
+  body: string,
+  supportEmail: string
+): ParsedEvent | { error: string; type?: string } {
   let json: unknown;
   try {
     json = JSON.parse(body);
@@ -114,14 +138,15 @@ function parseEvent(body: string): ParsedEvent | { error: string; type?: string 
   }
   const kind = EVENT_KINDS[type];
   const text: Record<string, string> = {};
-  for (const field of ['user_id', 'email', ...kind.fields]) {
+  for (const field of ['user_id', ...(kind.toSupport ? [] : ['email']), ...kind.fields]) {
     const value = data[field];
     if (!isText(value)) {
       return { error: `missing data.${field}`, type };
     }
     text[field] = value;
   }
-  return { id, type, userId: text.user_id, to: text.email, message: kind.render(text.email, text) };
+  const to = kind.toSupport ? supportEmail : text.email;
+  return { id, type, userId: text.user_id, to, message: kind.render(to, text) };
 }
 
 /**
@@ -145,9 +170,11 @@ function parseEvent(body: string): ParsedEvent | { error: string; type?: string 
 export function createEmailEventHandler(deps: {
   store: EmailStore;
   sender: EmailSender;
+  /** Where the events with no recipient of their own go. */
+  supportEmail: string;
   now?: () => Date;
 }) {
-  const { store, sender, now = () => new Date() } = deps;
+  const { store, sender, supportEmail, now = () => new Date() } = deps;
   const running = new Map<string, Promise<HandlerResult>>();
 
   async function deliver(event: ParsedEvent): Promise<HandlerResult> {
@@ -187,7 +214,7 @@ export function createEmailEventHandler(deps: {
   }
 
   return async function handle(body: string): Promise<HandlerResult> {
-    const parsed = parseEvent(body);
+    const parsed = parseEvent(body, supportEmail);
     if ('error' in parsed) {
       logEvent('warn', 'Discarding event that cannot be handled', {
         reason: parsed.error,

@@ -38,6 +38,40 @@ export function passwordResetEmail(to: string, token: string): EmailMessage {
   };
 }
 
+export interface Feedback {
+  feedbackId: string;
+  userId: string;
+  handle: string;
+  message: string;
+  deviceOs: string;
+  appVersion: string;
+}
+
+/**
+ * The device data and the message are whatever the app sent, so they stay out
+ * of the subject and, in the body, below who sent it: nothing typed there can
+ * pass for the real account. Plain text is what keeps them from being rendered.
+ */
+export function feedbackEmail(to: string, feedback: Feedback): EmailMessage {
+  return {
+    to,
+    subject: 'Nuevo comentario desde la app de UdeSA-X',
+    text: [
+      'Un usuario mandó un comentario o reportó un error desde la app.',
+      '',
+      `Usuario: ${feedback.handle}`,
+      `ID de usuario: ${feedback.userId}`,
+      `ID del comentario: ${feedback.feedbackId}`,
+      `Sistema operativo: ${feedback.deviceOs}`,
+      `Versión de la app: ${feedback.appVersion}`,
+      '',
+      'Mensaje:',
+      '',
+      feedback.message,
+    ].join('\n'),
+  };
+}
+
 export function passwordChangedEmail(to: string): EmailMessage {
   return {
     to,
