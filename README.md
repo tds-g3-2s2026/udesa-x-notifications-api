@@ -1,6 +1,6 @@
 # udesa-x-notifications-api
 
-Microservicio de notificaciones: cola, push, emails y triage de IA. Consume los eventos que
+Microservicio de notificaciones: cola, push y emails. Consume los eventos que
 publican `users-api` y `posts-api` por RabbitMQ, manda emails y push por FCM, y guarda el
 historial en MongoDB para el centro de notificaciones in-app (`E4-H3`).
 
@@ -355,6 +355,16 @@ como payload; los ejemplos están en `contracts/events/`. Con `EMAIL_PROVIDER=co
 sale en el log del servicio, y repetir el mismo `id` no genera un segundo mail. Con
 `PUSH_PROVIDER=console` pasa lo mismo con el push de un `follow.created.v1`, siempre que la cuenta
 seguida tenga un token registrado.
+
+## Despliegue
+
+Todavía no se despliega: el repo no tiene `k8s/`, y `.github/workflows/ci.yml` corre el CI pero no
+llama a `deploy.yml` de `udesa-x-platform`. Mientras el servicio no esté en el cluster, nadie
+consume estos eventos en producción, así que no salen los correos de la cuenta ni el push.
+
+Para desplegarlo hacen falta, como en los demás servicios, los manifiestos en `k8s/` y un job
+`deploy` en `ci.yml`, con las variables de [Configuración](#configuración) como secretos o en el
+ConfigMap, y una base MongoDB a la que se llegue desde el cluster.
 
 ## Tests
 
