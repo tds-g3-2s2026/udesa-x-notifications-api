@@ -14,7 +14,11 @@ describe('loadConfig', () => {
       port: 8000,
       mongodbUrl: URLS.MONGODB_URL,
       rabbitmqUrl: URLS.RABBITMQ_URL,
-      email: { provider: 'console', from: 'UdeSA-X <no-reply@udesax.app>' },
+      email: {
+        provider: 'console',
+        from: 'UdeSA-X <no-reply@udesax.app>',
+        supportEmail: 'support@example.com',
+      },
       push: { provider: 'console' },
       auth: { jwtPublicKey: URLS.JWT_PUBLIC_KEY, jwtIssuer: 'users-api' },
     });
@@ -54,19 +58,46 @@ describe('loadConfig email', () => {
     expect(email.from).toBe('Test <test@udesax.app>');
   });
 
-  it('uses Resend with its key', () => {
+  it('uses Resend with its key and the support mailbox', () => {
     expect(
-      loadConfig({ ...URLS, EMAIL_PROVIDER: 'resend', RESEND_API_KEY: 're_123' }).email
-    ).toEqual({ provider: 'resend', apiKey: 're_123', from: 'UdeSA-X <no-reply@udesax.app>' });
+      loadConfig({
+        ...URLS,
+        EMAIL_PROVIDER: 'resend',
+        RESEND_API_KEY: 're_123',
+        SUPPORT_EMAIL: 'team@udesax.app',
+      }).email
+    ).toEqual({
+      provider: 'resend',
+      apiKey: 're_123',
+      from: 'UdeSA-X <no-reply@udesax.app>',
+      supportEmail: 'team@udesax.app',
+    });
   });
 
   it('does not start with Resend and no key', () => {
-    expect(() => loadConfig({ ...URLS, EMAIL_PROVIDER: 'resend' })).toThrow(
+    const SUPPORT = { SUPPORT_EMAIL: 'team@udesax.app' };
+    expect(() => loadConfig({ ...URLS, ...SUPPORT, EMAIL_PROVIDER: 'resend' })).toThrow(
       'RESEND_API_KEY is required when EMAIL_PROVIDER=resend'
     );
-    expect(() => loadConfig({ ...URLS, EMAIL_PROVIDER: 'resend', RESEND_API_KEY: '' })).toThrow(
-      'RESEND_API_KEY is required when EMAIL_PROVIDER=resend'
+    expect(() =>
+      loadConfig({ ...URLS, ...SUPPORT, EMAIL_PROVIDER: 'resend', RESEND_API_KEY: '' })
+    ).toThrow('RESEND_API_KEY is required when EMAIL_PROVIDER=resend');
+  });
+
+  it('does not start with Resend and no support mailbox', () => {
+    const RESEND = { EMAIL_PROVIDER: 'resend', RESEND_API_KEY: 're_123' };
+    expect(() => loadConfig({ ...URLS, ...RESEND })).toThrow(
+      'SUPPORT_EMAIL is required when EMAIL_PROVIDER=resend'
     );
+    expect(() => loadConfig({ ...URLS, ...RESEND, SUPPORT_EMAIL: '' })).toThrow(
+      'SUPPORT_EMAIL is required when EMAIL_PROVIDER=resend'
+    );
+  });
+
+  it('takes the support mailbox from SUPPORT_EMAIL with the console provider too', () => {
+    const { email } = loadConfig({ ...URLS, SUPPORT_EMAIL: 'team@udesax.app' });
+
+    expect(email.supportEmail).toBe('team@udesax.app');
   });
 
   it('does not need the key with the console provider', () => {
