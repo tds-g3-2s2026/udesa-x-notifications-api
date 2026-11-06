@@ -1,5 +1,6 @@
 export type EmailConfig =
-  { provider: 'console'; from: string } | { provider: 'resend'; apiKey: string; from: string };
+  | { provider: 'console'; from: string; supportEmail: string }
+  | { provider: 'resend'; apiKey: string; from: string; supportEmail: string };
 
 /** The Firebase service account the FCM adapter signs in with. */
 export interface ServiceAccount {
@@ -34,18 +35,25 @@ const REQUIRED = ['MONGODB_URL', 'RABBITMQ_URL', 'JWT_PUBLIC_KEY'] as const;
 // Domain verified in Resend (ADR-010).
 const DEFAULT_EMAIL_FROM = 'UdeSA-X <no-reply@udesax.app>';
 
+// Only the console provider falls back to it: nothing is delivered there.
+const DEVELOPMENT_SUPPORT_EMAIL = 'support@example.com';
+
 function loadEmailConfig(env: Record<string, string | undefined>): EmailConfig {
   const provider = env.EMAIL_PROVIDER || 'console';
   const from = env.EMAIL_FROM || DEFAULT_EMAIL_FROM;
   if (provider === 'console') {
-    return { provider, from };
+    return { provider, from, supportEmail: env.SUPPORT_EMAIL || DEVELOPMENT_SUPPORT_EMAIL };
   }
   if (provider === 'resend') {
     // Without a key every email would fail at the first event.
     if (!env.RESEND_API_KEY) {
       throw new Error('RESEND_API_KEY is required when EMAIL_PROVIDER=resend');
     }
-    return { provider, apiKey: env.RESEND_API_KEY, from };
+    // Without a mailbox every feedback email would fail at the first event.
+    if (!env.SUPPORT_EMAIL) {
+      throw new Error('SUPPORT_EMAIL is required when EMAIL_PROVIDER=resend');
+    }
+    return { provider, apiKey: env.RESEND_API_KEY, from, supportEmail: env.SUPPORT_EMAIL };
   }
   throw new Error(`EMAIL_PROVIDER must be 'console' or 'resend', got '${provider}'`);
 }

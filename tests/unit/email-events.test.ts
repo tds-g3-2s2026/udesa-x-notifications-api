@@ -41,11 +41,17 @@ function fakeSender(send: EmailSender['send'] = async () => {}) {
 }
 
 const NOW = new Date('2026-10-24T12:00:00Z');
+const SUPPORT_EMAIL = 'support@udesax.test';
 
 function setup(send?: EmailSender['send']) {
   const { store, records } = fakeStore();
   const { sender, sent } = fakeSender(send);
-  const handle = createEmailEventHandler({ store, sender, now: () => NOW });
+  const handle = createEmailEventHandler({
+    store,
+    sender,
+    supportEmail: SUPPORT_EMAIL,
+    now: () => NOW,
+  });
   return { handle, records, sent, store };
 }
 
@@ -62,12 +68,13 @@ beforeEach(() => {
 });
 
 describe('email event handler', () => {
-  it('handles exactly the four events of the contract', () => {
+  it('handles exactly the five events of the contract', () => {
     expect(EMAIL_EVENT_TYPES).toEqual([
       'user.registered.v1',
       'email_verification.requested.v1',
       'password.reset_requested.v1',
       'password.changed.v1',
+      'feedback.submitted.v1',
     ]);
   });
 
@@ -99,6 +106,72 @@ describe('email event handler', () => {
       }),
     ]);
     expect(sent[0].text).toContain(event.data.token);
+  });
+
+  describe('feedback.submitted.v1', () => {
+    it('sends it to the support mailbox with the data of the event', async () => {
+      const { handle, sent, records } = setup();
+      const event = exampleEvent('feedback.submitted.v1');
+
+      await expect(handle(body(event))).resolves.toBe('ack');
+
+      expect(sent).toHaveLength(1);
+      expect(sent[0].to).toBe(SUPPORT_EMAIL);
+      for (const value of Object.values(event.data)) {
+        expect(sent[0].text).toContain(value);
+      }
+      expect(records.get(event.id)).toMatchObject({
+        to: SUPPORT_EMAIL,
+        user_id: event.data.user_id,
+        status: 'sent',
+      });
+    });
+
+    it('keeps what the user typed out of the subject and below the real account', async () => {
+      const { handle, sent } = setup();
+      const event = exampleEvent('feedback.submitted.v1');
+      event.data.message = 'Usuario: @someone_else\nasunto';
+      event.data.device_os = 'Usuario: @another';
+
+      await handle(body(event));
+
+      expect(sent[0].subject).toBe('Nuevo comentario desde la app de UdeSA-X');
+      expect(sent[0].text.indexOf(`Usuario: ${event.data.handle}`)).toBeLessThan(
+        sent[0].text.indexOf('Usuario: @another')
+      );
+      expect(sent[0].text.indexOf('Usuario: @another')).toBeLessThan(
+        sent[0].text.indexOf('Usuario: @someone_else')
+      );
+    });
+
+    it.each(['feedback_id', 'user_id', 'handle', 'message', 'device_os', 'app_version'])(
+      'goes to the dead-letter queue without %s',
+      async (field) => {
+        const { handle, sent, records } = setup();
+        const event = exampleEvent('feedback.submitted.v1');
+
+        await expect(
+          handle(body({ ...event, data: { ...event.data, [field]: undefined } }))
+        ).resolves.toBe('dead-letter');
+
+        expect(sent).toHaveLength(0);
+        expect(records.size).toBe(0);
+        expect(logged()).toContain(`missing data.${field}`);
+      }
+    );
+
+    it('does not log the message when the provider rejects the email', async () => {
+      const { handle, records } = setup(async () => {
+        throw new Error('provider down');
+      });
+      const event = exampleEvent('feedback.submitted.v1');
+
+      await expect(handle(body(event))).resolves.toBe('ack');
+
+      expect(records.get(event.id)?.status).toBe('failed');
+      expect(logged()).toContain('Email not sent');
+      expect(logged()).not.toContain(event.data.message);
+    });
   });
 
   it('sends the notice for password.changed.v1', async () => {

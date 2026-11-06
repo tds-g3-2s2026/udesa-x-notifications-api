@@ -14,10 +14,12 @@ services:
       MONGODB_URL: mongodb://mongodb:27017/notifications
       RABBITMQ_URL: amqp://notifications:notifications@rabbitmq:5672
       # Emails are printed to the log, not sent. To send them for real, export
-      # EMAIL_PROVIDER=resend and RESEND_API_KEY before `docker compose up`.
+      # EMAIL_PROVIDER=resend, RESEND_API_KEY and SUPPORT_EMAIL before
+      # `docker compose up`.
       EMAIL_PROVIDER: ${EMAIL_PROVIDER:-console}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       EMAIL_FROM: ${EMAIL_FROM:-}
+      SUPPORT_EMAIL: ${SUPPORT_EMAIL:-}
       # Pushes are printed to the log too. To send them through FCM, export
       # PUSH_PROVIDER=fcm and FIREBASE_SERVICE_ACCOUNT with the key file's JSON.
       PUSH_PROVIDER: ${PUSH_PROVIDER:-console}

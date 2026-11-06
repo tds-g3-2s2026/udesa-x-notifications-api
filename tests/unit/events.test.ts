@@ -16,12 +16,13 @@ function setup() {
 }
 
 describe('event routing', () => {
-  it('binds the queue to the four email events, user.deleted and follow.created', () => {
+  it('binds the queue to the five email events, user.deleted and follow.created', () => {
     expect(EVENT_TYPES).toEqual([
       'user.registered.v1',
       'email_verification.requested.v1',
       'password.reset_requested.v1',
       'password.changed.v1',
+      'feedback.submitted.v1',
       'user.deleted.v1',
       'follow.created.v1',
     ]);

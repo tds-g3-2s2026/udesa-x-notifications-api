@@ -50,6 +50,8 @@ if (!MONGODB_URL || !RABBITMQ_URL) {
   throw new Error('tests/integration needs MONGODB_URL and RABBITMQ_URL');
 }
 
+const SUPPORT_EMAIL = 'support@udesax.test';
+
 const sent: EmailMessage[] = [];
 const sender: EmailSender = {
   async send(message) {
@@ -100,7 +102,11 @@ beforeAll(async () => {
   mongo = createMongoClient(MONGODB_URL);
   const deviceTokens = createDeviceTokenStore(deviceTokenCollection(mongo));
   const handler = routeEvents({
-    email: createEmailEventHandler({ store: createEmailStore(emails()), sender }),
+    email: createEmailEventHandler({
+      store: createEmailStore(emails()),
+      sender,
+      supportEmail: SUPPORT_EMAIL,
+    }),
     userDeleted: createUserDeletedHandler({
       deviceTokens,
       notifications: createNotificationStore(notifications()),
@@ -170,7 +176,7 @@ describe('events queue', () => {
     // A mandatory message with no queue bound comes back as a return.
     await vi.waitFor(() => expect(sent).toHaveLength(1), { timeout: 10_000, interval: 50 });
     expect(returned).toHaveLength(0);
-    expect(sent[0].to).toBe(event.data.email);
+    expect(sent[0].to).toBe(event.data.email ?? SUPPORT_EMAIL);
     await vi.waitFor(async () => {
       expect(await emails().findOne({ _id: event.id })).toMatchObject({ status: 'sent', type });
     });

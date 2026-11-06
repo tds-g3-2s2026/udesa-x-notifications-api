@@ -68,10 +68,19 @@ describe('Resend email sender', () => {
 
 describe('createEmailSender', () => {
   it('builds the one the config names', async () => {
-    await createEmailSender({ provider: 'console', from: 'a <a@b.c>' }).send(MESSAGE);
+    await createEmailSender({ provider: 'console', from: 'a <a@b.c>', supportEmail: 's@b.c' }).send(
+      MESSAGE
+    );
     expect(console.info).toHaveBeenCalledOnce();
 
-    expect(createEmailSender({ provider: 'resend', apiKey: 're_x', from: 'a <a@b.c>' })).toEqual({
+    expect(
+      createEmailSender({
+        provider: 'resend',
+        apiKey: 're_x',
+        from: 'a <a@b.c>',
+        supportEmail: 's@b.c',
+      })
+    ).toEqual({
       send: expect.any(Function),
     });
   });
