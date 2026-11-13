@@ -14,6 +14,9 @@ coverage
 .env.*
 !.env.example
 
+# Real values of k8s/secret.template.yaml
+/k8s/secret.yaml
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
