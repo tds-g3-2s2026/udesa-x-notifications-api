@@ -367,13 +367,35 @@ seguida tenga un token registrado.
 
 ## Despliegue
 
-Todavía no se despliega: el repo no tiene `k8s/`, y `.github/workflows/ci.yml` corre el CI pero no
-llama a `deploy.yml` de `udesa-x-platform`. Mientras el servicio no esté en el cluster, nadie
-consume estos eventos en producción, así que no salen los correos de la cuenta ni el push.
+Cada push a `main` que pasa el CI se despliega en el namespace `tds-group-3` con `deploy.yml` de
+`udesa-x-platform` (job `deploy` de `.github/workflows/ci.yml`): aplica `k8s/configmap.yaml`, arma
+`notifications-api-secret` con los secrets, aplica `k8s/service.yaml` y `k8s/deployment.yaml` y
+espera el rollout. No corre migración: MongoDB no lleva esquema y los índices se crean al arrancar.
 
-Para desplegarlo hacen falta, como en los demás servicios, los manifiestos en `k8s/` y un job
-`deploy` en `ci.yml`, con las variables de [Configuración](#configuración) como secretos o en el
-ConfigMap, y una base MongoDB a la que se llegue desde el cluster.
+| Dónde                      | Qué                                                                                                                       |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `k8s/configmap.yaml`       | `EMAIL_PROVIDER=resend`, `EMAIL_FROM`, `SUPPORT_EMAIL`, `PUSH_PROVIDER=fcm`, `JWT_ISSUER` y `OTEL_EXPORTER_OTLP_ENDPOINT` |
+| Secrets del repositorio    | `MONGODB_URL`, `RABBITMQ_URL`, `JWT_PUBLIC_KEY` y `FIREBASE_SERVICE_ACCOUNT`                                              |
+| Secrets de la organización | `RESEND_API_KEY` y `OTEL_EXPORTER_OTLP_HEADERS`                                                                           |
+
+`RABBITMQ_URL` es el mismo broker y usuario que usan `users-api` y `posts-api`. `JWT_PUBLIC_KEY` es
+la mitad pública del par con el que firma `users-api`, la misma que tiene `posts-api`.
+
+La base es Amazon DocumentDB 8.0 (`tds-group-3-docdb`), en la VPC del cluster y sin acceso público.
+El servicio entra con el usuario `notifications`, que solo tiene `readWrite` sobre la base
+`notifications` y lo crea el workflow `crear-usuario-documentdb.yml` de `udesa-x-platform`. La URL:
+
+```
+mongodb://notifications:<clave>@tds-group-3-docdb.cluster-cze2woweg3po.us-east-2.docdb.amazonaws.com:27017/notifications?tls=true&tlsCAFile=/etc/ssl/certs/rds-ca-us-east-2.pem&replicaSet=rs0&authSource=admin
+```
+
+- `tlsCAFile`: DocumentDB firma su certificado con la CA de RDS, que no está en el bundle del
+  sistema. La imagen trae las raíces de `us-east-2` en ese path (`docker/rds-ca-us-east-2.pem`),
+  igual que `users-api` y `posts-api` (ADR-021).
+- `authSource=admin`: DocumentDB guarda y autentica a todos los usuarios en `admin`, aunque la
+  base de trabajo sea otra.
+- Las retryable writes quedan prendidas, como las trae el driver: DocumentDB las soporta desde
+  la versión 8.0.2.
 
 ## Tests
 
