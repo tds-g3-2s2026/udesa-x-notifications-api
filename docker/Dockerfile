@@ -19,6 +19,10 @@ CMD ["bun", "run", "test:ci"]
 FROM base AS production
 COPY src/ ./src/
 COPY tsconfig.json ./
+# CA roots of Amazon RDS in us-east-2, which also sign the certificate of the
+# production DocumentDB. MONGODB_URL points tlsCAFile here; the system bundle
+# does not include them.
+COPY docker/rds-ca-us-east-2.pem /etc/ssl/certs/rds-ca-us-east-2.pem
 RUN chown -R bun:bun /app
 USER bun
 EXPOSE 8000

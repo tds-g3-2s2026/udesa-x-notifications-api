@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: notifications-api-config
+  namespace: tds-group-3
+data:
+  JWT_ISSUER: 'users-api'
+  # Los mails de cuenta salen por Resend (ADR-010). La clave va en el Secret.
+  EMAIL_PROVIDER: 'resend'
+  EMAIL_FROM: 'UdeSA-X <no-reply@udesax.app>'
+  # Casilla que recibe el feedback de la app (feedback.submitted.v1).
+  SUPPORT_EMAIL: 'soporte@udesax.app'
+  # Push por FCM. La service account de Firebase va en el Secret.
+  PUSH_PROVIDER: 'fcm'
+  # Logs, trazas y métricas a Grafana Cloud. El token va en el Secret.
+  OTEL_EXPORTER_OTLP_ENDPOINT: 'https://otlp-gateway-prod-sa-east-1.grafana.net/otlp'

@@ -17,3 +17,19 @@ jobs:
       verificar-imagen: true
       puerto-imagen: 8000
       ruta-verificacion: /healthcheck
+
+  # Only a commit on main that passed CI reaches the cluster. The pipeline and
+  # what it applies are documented in udesa-x-platform, "Despliegue continuo".
+  deploy:
+    needs: ci
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    uses: tds-g3-2s2026/udesa-x-platform/.github/workflows/deploy.yml@main
+    secrets: inherit
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      servicio: notifications-api
+      # RESEND_API_KEY and OTEL_EXPORTER_OTLP_HEADERS are organization secrets.
+      # No migration: MongoDB has no schema, and the indexes are created at startup.
+      secretos: MONGODB_URL RABBITMQ_URL JWT_PUBLIC_KEY RESEND_API_KEY FIREBASE_SERVICE_ACCOUNT OTEL_EXPORTER_OTLP_HEADERS
