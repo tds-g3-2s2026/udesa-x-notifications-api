@@ -150,9 +150,9 @@ El listado se sostiene con el índice `{ recipient_id: 1, deleted_at: 1, created
 que el servicio crea al arrancar. Si MongoDB no responde en ese momento, lo deja en el log y
 sigue: el listado anda igual, más lento, hasta que un reinicio lo cree.
 
-Las notificaciones las crean los consumidores de eventos: hoy el de `follow.created` (más abajo,
-en "Nuevo seguidor"); el de `interaction.created` llega con `E4-H2`. Para probar el centro con
-muchas a la vez se cargan a mano. Con el compose
+Las notificaciones las crean los consumidores de eventos: el de `follow.created` y el de
+`interaction.created` (más abajo, en "Nuevo seguidor" e "Interacción con un post"). Para probar
+el centro con muchas a la vez se cargan a mano. Con el compose
 levantado, y `<cuenta>` igual al `sub` del token con el que se llama (ver el comentario de
 `JWT_PUBLIC_KEY` en `docker/docker-compose.dev.yml`):
 
@@ -228,20 +228,23 @@ Tampoco se loguean ni se guardan acá: el registro del comentario queda en `user
 También consume `user.deleted.v1` (campo `user_id`), que no manda mail: borra lógicamente lo que
 el servicio guarda de esa cuenta. Está más abajo, en "Cuenta eliminada". Y `follow.created.v1`
 (campos `follower_id`, `follower_handle` y `followee_id`), que publica `posts-api`: avisa por
-push a la cuenta seguida, en "Nuevo seguidor".
+push a la cuenta seguida, en "Nuevo seguidor". También de `posts-api` llega
+`interaction.created.v1` (campos `kind`, `actor_id`, `actor_handle`, `post_id`, `post_author_id`
+y `reply_id`): avisa al autor del post de un like, retweet o respuesta, en "Interacción con un
+post".
 
 ### Topología en RabbitMQ
 
 El servicio declara esto al arrancar y otra vez en cada reconexión (la recuperación de `amqplib`
 corre el `setup` después de cada conexión exitosa, y también vuelve a registrar el consumidor):
 
-| Qué                      | Nombre                  | Detalle                                                                     |
-| ------------------------ | ----------------------- | --------------------------------------------------------------------------- |
-| Exchange de eventos      | `udesa-x.events`        | `topic`, durable. Lo declara también `users-api`, con los mismos argumentos |
-| Cola del servicio        | `notifications-api`     | `quorum`, durable, `x-dead-letter-exchange: udesa-x.events.dlx`             |
-| Bindings de la cola      | las 7 routing keys      | Las 5 de los emails, `user.deleted.v1` y `follow.created.v1`                |
-| Exchange de rechazados   | `udesa-x.events.dlx`    | `fanout`, durable                                                           |
-| Cola de rechazados (DLQ) | `notifications-api.dlq` | `quorum`, durable, ligada al DLX                                            |
+| Qué                      | Nombre                  | Detalle                                                                                |
+| ------------------------ | ----------------------- | -------------------------------------------------------------------------------------- |
+| Exchange de eventos      | `udesa-x.events`        | `topic`, durable. Lo declara también `users-api`, con los mismos argumentos            |
+| Cola del servicio        | `notifications-api`     | `quorum`, durable, `x-dead-letter-exchange: udesa-x.events.dlx`                        |
+| Bindings de la cola      | las 8 routing keys      | Las 5 de los emails, `user.deleted.v1`, `follow.created.v1` e `interaction.created.v1` |
+| Exchange de rechazados   | `udesa-x.events.dlx`    | `fanout`, durable                                                                      |
+| Cola de rechazados (DLQ) | `notifications-api.dlq` | `quorum`, durable, ligada al DLX                                                       |
 
 La routing key es el `type` completo. El consumidor es dueño de su cola: si `users-api` publica
 antes de que exista, el broker devuelve el mensaje (publica con `mandatory`) y la fila de su
@@ -326,6 +329,9 @@ cada uno de sus dispositivos (`device_tokens` sin `deleted_at`):
 | `data.type`    | `follow`                                                                  |
 | `data.actorId` | `id` de quien empezó a seguir: la app abre su perfil al tocarlo (CA.2)    |
 
+El handle va con una sola `@`: los de `users-api` ya la traen y los ejemplos del contrato no, así
+que se agrega solo si falta. Lo mismo en el push de una interacción.
+
 La notificación del centro es también la marca de idempotencia: el `insertOne` con `_id` único
 dice si el evento es nuevo. Como no hay transacciones entre documentos, el orden importa:
 
@@ -357,13 +363,35 @@ Los tokens de una cuenta se leen con el índice `{ account_id: 1, deleted_at: 1 
 `device_tokens`, que el servicio crea al arrancar igual que el del centro: si MongoDB no responde
 en ese momento, lo deja en el log y sigue.
 
+### Interacción con un post
+
+Cuando `posts-api` publica `interaction.created.v1` (`E4-H2`), el servicio hace lo mismo que con
+un nuevo seguidor, en el mismo orden y con la misma idempotencia y limpieza de tokens: deja la
+notificación en el centro del autor del post (`post_author_id`) y le manda un push a cada uno de
+sus dispositivos. Los dos consumidores comparten ese tramo (`src/app/delivery.ts`), que es el único
+lugar que manda push.
+
+| Campo del push | Valor                                                                                             |
+| -------------- | ------------------------------------------------------------------------------------------------- |
+| Título         | `Nuevo me gusta`, `Nuevo retweet` o `Nueva respuesta`, según `kind`                               |
+| Texto          | `@<handle> le dio me gusta a tu publicación`, `retuiteó` o `respondió`; sin handle, `Alguien ...` |
+| `data.type`    | el `kind`: `like`, `retweet` o `reply`                                                            |
+| `data.postId`  | el post que recibió la interacción (en una respuesta, el respondido): la app lo abre (CA.2)       |
+
+En el centro queda con `type` igual al `kind`, `post_id` y, en una respuesta, `reply_id`. No
+filtra nada por su cuenta: las interacciones con un post propio o de una cuenta que el autor
+silenció ya no se publican en `posts-api`. Un `kind` que el servicio no conoce (el contrato dice
+que sumar uno no rompe a nadie) se confirma y se loguea, sin notificación ni push. Un mensaje sin
+`id`, `time`, `kind`, `actor_id`, `post_id` o `post_author_id` va a la DLQ; `actor_handle` y
+`reply_id` pueden faltar o ser `null`.
+
 ### Mandar un evento a mano
 
 Con el compose levantado, desde la interfaz de administración (`Exchanges > udesa-x.events > Publish message`) se publica con la routing key igual al `type` y el sobre
 como payload; los ejemplos están en `contracts/events/`. Con `EMAIL_PROVIDER=console` el mail
 sale en el log del servicio, y repetir el mismo `id` no genera un segundo mail. Con
-`PUSH_PROVIDER=console` pasa lo mismo con el push de un `follow.created.v1`, siempre que la cuenta
-seguida tenga un token registrado.
+`PUSH_PROVIDER=console` pasa lo mismo con el push de un `follow.created.v1` o un
+`interaction.created.v1`, siempre que la cuenta que lo recibe tenga un token registrado.
 
 ## Despliegue
 
@@ -398,12 +426,14 @@ validan contra el esquema con `ajv` y `ajv-formats` (ADR-017). La integración p
 exchange real y comprueba el flujo completo: el mismo evento dos veces manda un solo mail y deja
 un documento `sent`, la cola es `quorum` con sus bindings, un `user.deleted.v1` publicado borra
 las notificaciones de la cuenta, un `follow.created.v1` publicado deja la notificación y manda el
-push, y los mensajes inválidos llegan a la DLQ. Usa la cola `notifications-api`, así que no corre
+push, lo mismo un `interaction.created.v1` al autor del post, y los mensajes inválidos llegan a la
+DLQ. Usa la cola `notifications-api`, así que no corre
 bien contra un broker donde ya esté consumiendo una instancia del servicio.
 
 El push de un nuevo seguidor se prueba contra MongoDB real (`tests/integration/follow-created.test.ts`)
 con FCM como doble: a qué tokens va, el payload, la notificación del centro y que un evento
-repetido no mande un segundo push. El adaptador de FCM se prueba con un cliente falso
+repetido no mande un segundo push. El de una interacción, igual en
+`tests/integration/interaction-created.test.ts`. El adaptador de FCM se prueba con un cliente falso
 (`tests/unit/push-senders.test.ts`).
 
 El centro de notificaciones se prueba entero contra MongoDB real (`tests/integration/notifications-*`):

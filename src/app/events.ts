@@ -1,5 +1,6 @@
 import { EMAIL_EVENT_TYPES } from './email-events';
 import { FOLLOW_CREATED } from './follows';
+import { INTERACTION_CREATED } from './interactions';
 import { USER_DELETED } from './user-deletion';
 
 /**
@@ -11,7 +12,12 @@ export type HandlerResult = 'ack' | 'dead-letter';
 export type EventHandler = (body: string) => Promise<HandlerResult>;
 
 /** The routing keys the service binds its queue with: one per type it handles. */
-export const EVENT_TYPES = [...EMAIL_EVENT_TYPES, USER_DELETED, FOLLOW_CREATED];
+export const EVENT_TYPES = [
+  ...EMAIL_EVENT_TYPES,
+  USER_DELETED,
+  FOLLOW_CREATED,
+  INTERACTION_CREATED,
+];
 
 function typeOf(body: string): unknown {
   try {
@@ -30,10 +36,12 @@ export function routeEvents(handlers: {
   email: EventHandler;
   userDeleted: EventHandler;
   followCreated: EventHandler;
+  interactionCreated: EventHandler;
 }): EventHandler {
   const byType: Record<string, EventHandler> = {
     [USER_DELETED]: handlers.userDeleted,
     [FOLLOW_CREATED]: handlers.followCreated,
+    [INTERACTION_CREATED]: handlers.interactionCreated,
   };
   return (body) => {
     const type = typeOf(body);

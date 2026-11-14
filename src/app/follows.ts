@@ -1,8 +1,6 @@
 import { logEvent } from '../infrastructure/telemetry';
-import type { DeviceTokenStore } from './device-tokens';
+import { actorName, createNotificationDelivery, type DeliveryDeps } from './delivery';
 import type { HandlerResult } from './events';
-import type { NotificationStore } from './notifications';
-import type { PushSender } from './push';
 
 export const FOLLOW_CREATED = 'follow.created.v1';
 
@@ -63,34 +61,11 @@ function parseFollowCreated(body: string): FollowCreated | { error: string } {
 }
 
 /**
- * A new follower (E4-H1): an entry in the followed account's notification
- * center, and a push to every device of that account.
- *
- * The entry is also the memory of what was handled: its id is the event's, so
- * `add` answers false for an event seen before, and then nothing is sent.
- * MongoDB runs without transactions across documents, so the order matters:
- *
- * 1. The tokens are read first. If that fails the message is requeued with
- *    nothing done yet.
- * 2. The entry is added. A duplicate stops here.
- * 3. The push goes out.
- *
- * A crash between 2 and 3 loses that push, while the entry stays in the center.
- * That is accepted over the alternative, recording after the send, which
- * repeats the push whenever the same event is handled twice.
- *
- * A push the provider refuses is not retried: it is logged and the message
- * acked, as with emails. The tokens FCM says no longer exist are marked
- * deleted afterwards (E4-H1 CA.4); if that fails it is only logged, since the
- * next push to the account reports them again.
+ * A new follower: an entry in the followed account's notification center, and
+ * a push to every device of that account, through the shared delivery.
  */
-export function createFollowCreatedHandler(deps: {
-  notifications: NotificationStore;
-  deviceTokens: DeviceTokenStore;
-  push: PushSender;
-  now?: () => Date;
-}) {
-  const { notifications, deviceTokens, push, now = () => new Date() } = deps;
+export function createFollowCreatedHandler(deps: DeliveryDeps) {
+  const deliver = createNotificationDelivery(deps);
 
   return async function handle(body: string): Promise<HandlerResult> {
     const event = parseFollowCreated(body);
@@ -103,59 +78,23 @@ export function createFollowCreatedHandler(deps: {
     }
 
     const { id, followerId, followerHandle, followeeId, createdAt } = event;
-    const tokens = await deviceTokens.activeTokensOf(followeeId);
-    const added = await notifications.add({
-      id,
-      recipientId: followeeId,
-      type: 'follow',
-      actor: { id: followerId, handle: followerHandle },
-      postId: null,
-      replyId: null,
-      createdAt,
-    });
-    if (!added) {
-      logEvent('info', 'Duplicate event dropped', { id, type: FOLLOW_CREATED });
-      return 'ack';
-    }
-    if (tokens.length === 0) {
-      logEvent('info', 'No device to push to', { id, type: FOLLOW_CREATED });
-      return 'ack';
-    }
-
-    let invalidTokens: string[];
-    try {
-      ({ invalidTokens } = await push.send(tokens, {
-        title: 'Nuevo seguidor',
-        body: followerHandle
-          ? `@${followerHandle} te empezó a seguir`
-          : 'Alguien te empezó a seguir',
-        // What the app opens on a tap: the follower's profile (E4-H1 CA.2).
-        data: { type: 'follow', actorId: followerId },
-      }));
-    } catch (error) {
-      logEvent('warn', 'Push not sent', {
+    return deliver(
+      FOLLOW_CREATED,
+      {
         id,
-        type: FOLLOW_CREATED,
-        error: error instanceof Error ? error.message : 'unknown error',
-      });
-      return 'ack';
-    }
-    logEvent('info', 'Push sent', { id, type: FOLLOW_CREATED, devices: String(tokens.length) });
-
-    if (invalidTokens.length > 0) {
-      try {
-        await deviceTokens.softDelete(invalidTokens, now());
-        logEvent('info', 'Invalid device tokens soft-deleted', {
-          id,
-          count: String(invalidTokens.length),
-        });
-      } catch (error) {
-        logEvent('warn', 'Could not soft-delete invalid device tokens', {
-          id,
-          error: error instanceof Error ? error.message : 'unknown error',
-        });
+        recipientId: followeeId,
+        type: 'follow',
+        actor: { id: followerId, handle: followerHandle },
+        postId: null,
+        replyId: null,
+        createdAt,
+      },
+      {
+        title: 'Nuevo seguidor',
+        body: `${actorName(followerHandle)} te empezó a seguir`,
+        // What the app opens on a tap: the follower's profile.
+        data: { type: 'follow', actorId: followerId },
       }
-    }
-    return 'ack';
+    );
   };
 }
