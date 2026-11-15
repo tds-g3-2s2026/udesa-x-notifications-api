@@ -35,6 +35,10 @@ import {
   notificationCollection,
 } from '../../src/infrastructure/notification-store';
 import {
+  createPreferenceStore,
+  preferenceCollection,
+} from '../../src/infrastructure/preference-store';
+import {
   createProcessedEventStore,
   processedEventCollection,
 } from '../../src/infrastructure/processed-event-store';
@@ -102,6 +106,7 @@ const publishEvent = (event: EventEnvelope) => publish(event.type, JSON.stringif
 beforeAll(async () => {
   mongo = createMongoClient(MONGODB_URL);
   const deviceTokens = createDeviceTokenStore(deviceTokenCollection(mongo));
+  const preferences = createPreferenceStore(preferenceCollection(mongo));
   const handler = routeEvents({
     email: createEmailEventHandler({
       store: createEmailStore(emails()),
@@ -116,11 +121,13 @@ beforeAll(async () => {
     followCreated: createFollowCreatedHandler({
       notifications: createNotificationStore(notifications()),
       deviceTokens,
+      preferences,
       push,
     }),
     interactionCreated: createInteractionCreatedHandler({
       notifications: createNotificationStore(notifications()),
       deviceTokens,
+      preferences,
       push,
     }),
   });

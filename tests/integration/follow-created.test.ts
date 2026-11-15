@@ -14,6 +14,10 @@ import {
   createNotificationStore,
   notificationCollection,
 } from '../../src/infrastructure/notification-store';
+import {
+  createPreferenceStore,
+  preferenceCollection,
+} from '../../src/infrastructure/preference-store';
 import { exampleEvent, type EventEnvelope } from '../support/contracts';
 
 // The handler with the real stores; only FCM is a double. That the queue gets
@@ -47,6 +51,7 @@ function handler(push: PushSender) {
   return createFollowCreatedHandler({
     notifications: createNotificationStore(notifications()),
     deviceTokens: createDeviceTokenStore(tokens()),
+    preferences: createPreferenceStore(preferenceCollection(mongo)),
     push,
   });
 }

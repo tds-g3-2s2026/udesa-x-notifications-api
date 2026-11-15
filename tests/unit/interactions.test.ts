@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { DeviceTokenStore } from '../../src/app/device-tokens';
 import { createInteractionCreatedHandler } from '../../src/app/interactions';
 import type { NotificationStore } from '../../src/app/notifications';
+import type { PreferenceStore } from '../../src/app/preferences';
 import type { PushSender } from '../../src/app/push';
 import { exampleEvent, type EventEnvelope } from '../support/contracts';
 
@@ -22,11 +23,22 @@ function setup({ isNew = true } = {}) {
     softDelete: vi.fn(),
     softDeleteOwnedBy: vi.fn(),
   } satisfies NotificationStore;
+  // An account that never chose: everything on.
+  const preferences = {
+    chosenBy: vi.fn<PreferenceStore['chosenBy']>(async () => ({})),
+    set: vi.fn(),
+    deleteOwnedBy: vi.fn(),
+  } satisfies PreferenceStore;
   const push = {
     send: vi.fn<PushSender['send']>(async () => ({ invalidTokens: [] })),
   } satisfies PushSender;
-  const handle = createInteractionCreatedHandler({ notifications, deviceTokens, push });
-  return { handle, deviceTokens, notifications, push };
+  const handle = createInteractionCreatedHandler({
+    notifications,
+    deviceTokens,
+    preferences,
+    push,
+  });
+  return { handle, deviceTokens, notifications, preferences, push };
 }
 
 /** The like of the schema's first example, or another kind of the same interaction. */

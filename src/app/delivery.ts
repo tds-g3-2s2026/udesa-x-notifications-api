@@ -2,11 +2,13 @@ import { logEvent } from '../infrastructure/telemetry';
 import type { DeviceTokenStore } from './device-tokens';
 import type { HandlerResult } from './events';
 import type { Notification, NotificationStore } from './notifications';
+import { wantsPush, type PreferenceStore } from './preferences';
 import type { PushMessage, PushSender } from './push';
 
 export interface DeliveryDeps {
   notifications: NotificationStore;
   deviceTokens: DeviceTokenStore;
+  preferences: PreferenceStore;
   push: PushSender;
   now?: () => Date;
 }
@@ -27,13 +29,19 @@ export function actorName(handle: string | null): string {
  * device of that account. The only place that sends a push, so every kind of
  * notification follows the same rules.
  *
+ * The push is the only part the recipient can turn off (E4-H5 CA.2): the
+ * entry goes to the center whatever the account chose, because the preference
+ * is about alerts. The preference is read by the type of the entry, so a new
+ * kind of notification is covered without touching the handler that produces it.
+ *
  * The entry is also the memory of what was handled: its id is the event's, so
  * `add` answers false for an event seen before, and then nothing is sent.
  * MongoDB runs without transactions across documents, so the order matters:
  *
- * 1. The tokens are read first. If that fails the message is requeued with
- *    nothing done yet.
- * 2. The entry is added. A duplicate stops here.
+ * 1. The preference and the tokens are read first. If that fails the message
+ *    is requeued with nothing done yet.
+ * 2. The entry is added. A duplicate stops here, and so does an account that
+ *    turned that type off.
  * 3. The push goes out.
  *
  * A crash between 2 and 3 loses that push, while the entry stays in the center.
@@ -46,7 +54,7 @@ export function actorName(handle: string | null): string {
  * the account reports them again.
  */
 export function createNotificationDelivery(deps: DeliveryDeps) {
-  const { notifications, deviceTokens, push, now = () => new Date() } = deps;
+  const { notifications, deviceTokens, preferences, push, now = () => new Date() } = deps;
 
   return async function deliver(
     eventType: string,
@@ -54,10 +62,16 @@ export function createNotificationDelivery(deps: DeliveryDeps) {
     message: PushMessage
   ): Promise<HandlerResult> {
     const { id, recipientId } = notification;
-    const tokens = await deviceTokens.activeTokensOf(recipientId);
+    const pushWanted = await wantsPush(preferences, recipientId, notification.type);
+    // An account that turned the type off has no use for its tokens.
+    const tokens = pushWanted ? await deviceTokens.activeTokensOf(recipientId) : [];
     const added = await notifications.add(notification);
     if (!added) {
       logEvent('info', 'Duplicate event dropped', { id, type: eventType });
+      return 'ack';
+    }
+    if (!pushWanted) {
+      logEvent('info', 'Push turned off by the recipient', { id, type: eventType });
       return 'ack';
     }
     if (tokens.length === 0) {
