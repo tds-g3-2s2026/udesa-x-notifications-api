@@ -123,6 +123,20 @@ describe('PUT /api/notifications/preferences against MongoDB', () => {
     });
   });
 
+  it('deletes what an account chose and nothing of another, and repeating it is harmless', async () => {
+    const [account, other] = [newAccount(), newAccount()];
+    const store = createPreferenceStore(preferences());
+    await put(account, { like: false });
+    await put(other, { like: false });
+
+    await store.deleteOwnedBy(account);
+    await store.deleteOwnedBy(account);
+
+    expect(await (await call('GET', account)).json()).toEqual(ALL_ON);
+    expect(await preferences().countDocuments({ _id: account })).toBe(0);
+    expect(await (await call('GET', other)).json()).toMatchObject({ like: false });
+  });
+
   it('works on the account of the token and touches no other', async () => {
     const [account, other] = [newAccount(), newAccount()];
 

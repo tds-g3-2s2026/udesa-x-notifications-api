@@ -23,6 +23,7 @@ const NO_DEVICE_TOKENS: DeviceTokenStore = {
 const NO_PREFERENCES: PreferenceStore = {
   chosenBy: noStore('preference'),
   set: noStore('preference'),
+  deleteOwnedBy: noStore('preference'),
 };
 
 /** The app with nothing to check, unless the test says otherwise. */

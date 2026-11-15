@@ -33,5 +33,9 @@ export function createPreferenceStore(preferences: Collection<PreferenceRecord>)
         { upsert: true }
       );
     },
+
+    async deleteOwnedBy(accountId) {
+      await preferences.deleteOne({ _id: accountId });
+    },
   };
 }

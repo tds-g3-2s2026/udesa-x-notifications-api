@@ -33,6 +33,12 @@ export interface PreferenceStore {
    * were. Repeating the call changes nothing else.
    */
   set(accountId: string, changes: Partial<Preferences>, at: Date): Promise<void>;
+  /**
+   * Removes everything the account chose, for when the account is deleted. A
+   * preference is not history like a notification, so it is not kept: the
+   * account would read as one that never chose.
+   */
+  deleteOwnedBy(accountId: string): Promise<void>;
 }
 
 function withDefaults(chosen: Partial<Preferences>): Preferences {
