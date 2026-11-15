@@ -176,6 +176,39 @@ db.notifications.insertMany(Array.from({ length: 25 }, (_, i) => ({
 
 Son 25, así que la primera página trae 20 y un `nextCursor`, y la segunda las 5 restantes.
 
+### Preferencias de notificación
+
+Qué tipos de notificación quiere recibir la cuenta (`E4-H5`). `GET /api/notifications/preferences`
+responde `200` con un booleano por tipo, y `PUT` en la misma ruta guarda lo que trae el cuerpo y
+responde `200` con el resultado completo:
+
+```json
+{
+  "like": true,
+  "retweet": true,
+  "reply": true,
+  "mention": true,
+  "follow": true,
+  "direct_message": true
+}
+```
+
+Las claves son las del `type` de una notificación, tal cual. `direct_message` todavía no genera
+notificaciones (`E3-H6`): solo se guarda su preferencia. Una cuenta que nunca eligió tiene todo en
+`true`, y leerlas no escribe nada.
+
+`PUT` guarda solo los tipos que trae el cuerpo y deja los demás como estaban: la app manda uno a
+la vez, al tocar su switch, así que `{ "like": false }` alcanza. Un cuerpo que no es un objeto
+JSON, con un tipo que no existe o con un valor que no es booleano responde `422` con
+`code: validation-failed` y un `errors` con cada campo rechazado (`body` si el cuerpo entero no
+sirve).
+
+Se guardan en la colección `notification_preferences`, un documento por cuenta que eligió algo:
+`_id` (la cuenta), `preferences` (solo los tipos que tocó, por ejemplo `{ "like": false }`) y
+`updated_at`. Un tipo que no está en `preferences` está encendido, así que sumar uno nuevo no
+necesita migración. El `PUT` escribe cada tipo con su propia ruta (`preferences.like`) en un único
+`upsert`, y dos switches guardados a la vez no se pisan.
+
 ## Configuración
 
 | Variable                      | Default                         | Para qué                                                                |
