@@ -88,6 +88,7 @@ const consumer = createEventConsumer(
     userDeleted: createUserDeletedHandler({
       deviceTokens: deviceTokenStore,
       notifications: notificationStore,
+      preferences: preferenceStore,
       processedEvents: createProcessedEventStore(processedEventCollection(mongo)),
     }),
     followCreated: createFollowCreatedHandler(delivery),

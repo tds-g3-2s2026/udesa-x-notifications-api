@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { DeviceTokenStore } from '../../src/app/device-tokens';
 import type { NotificationStore } from '../../src/app/notifications';
+import type { PreferenceStore } from '../../src/app/preferences';
 import { createUserDeletedHandler, type ProcessedEventStore } from '../../src/app/user-deletion';
 import { exampleEvent } from '../support/contracts';
 
@@ -26,6 +27,13 @@ function setup({ processed = false } = {}) {
       calls.push('notifications');
     }),
   } satisfies NotificationStore;
+  const preferences = {
+    chosenBy: vi.fn(),
+    set: vi.fn(),
+    deleteOwnedBy: vi.fn<PreferenceStore['deleteOwnedBy']>(async () => {
+      calls.push('preferences');
+    }),
+  } satisfies PreferenceStore;
   const processedEvents = {
     has: vi.fn<ProcessedEventStore['has']>(async () => processed),
     record: vi.fn<ProcessedEventStore['record']>(async () => {
@@ -35,10 +43,11 @@ function setup({ processed = false } = {}) {
   const handle = createUserDeletedHandler({
     deviceTokens,
     notifications,
+    preferences,
     processedEvents,
     now: () => NOW,
   });
-  return { handle, deviceTokens, notifications, processedEvents, calls };
+  return { handle, deviceTokens, notifications, preferences, processedEvents, calls };
 }
 
 const event = () => exampleEvent('user.deleted.v1');
@@ -50,8 +59,8 @@ beforeEach(() => {
 });
 
 describe('user.deleted handler', () => {
-  it('soft-deletes the tokens and the notifications at the time of the event, then records it', async () => {
-    const { handle, deviceTokens, notifications, processedEvents, calls } = setup();
+  it('cleans up the tokens, the notifications and the preferences, then records the event', async () => {
+    const { handle, deviceTokens, notifications, preferences, processedEvents, calls } = setup();
     const deleted = event();
 
     await expect(handle(JSON.stringify(deleted))).resolves.toBe('ack');
@@ -59,16 +68,18 @@ describe('user.deleted handler', () => {
     const at = new Date(deleted.time);
     expect(deviceTokens.softDeleteOwnedBy).toHaveBeenCalledWith(deleted.data.user_id, at);
     expect(notifications.softDeleteOwnedBy).toHaveBeenCalledWith(deleted.data.user_id, at);
+    // Preferences are removed, not marked: there is no date to keep.
+    expect(preferences.deleteOwnedBy).toHaveBeenCalledWith(deleted.data.user_id);
     expect(processedEvents.record).toHaveBeenCalledWith(
       { id: deleted.id, type: 'user.deleted.v1', userId: deleted.data.user_id },
       NOW
     );
     // The record goes last: it only says done once everything is.
-    expect(calls).toEqual(['tokens', 'notifications', 'record']);
+    expect(calls).toEqual(['tokens', 'notifications', 'preferences', 'record']);
   });
 
   it('looks the account up in lowercase, the way requireAccount stores it', async () => {
-    const { handle, notifications } = setup();
+    const { handle, notifications, preferences } = setup();
     const deleted = event();
     deleted.data.user_id = deleted.data.user_id.toUpperCase();
 
@@ -78,15 +89,19 @@ describe('user.deleted handler', () => {
       deleted.data.user_id.toLowerCase(),
       expect.any(Date)
     );
+    expect(preferences.deleteOwnedBy).toHaveBeenCalledWith(deleted.data.user_id.toLowerCase());
   });
 
   it('drops an event already handled, touching nothing', async () => {
-    const { handle, deviceTokens, notifications, processedEvents } = setup({ processed: true });
+    const { handle, deviceTokens, notifications, preferences, processedEvents } = setup({
+      processed: true,
+    });
 
     await expect(handle(JSON.stringify(event()))).resolves.toBe('ack');
 
     expect(deviceTokens.softDeleteOwnedBy).not.toHaveBeenCalled();
     expect(notifications.softDeleteOwnedBy).not.toHaveBeenCalled();
+    expect(preferences.deleteOwnedBy).not.toHaveBeenCalled();
     expect(processedEvents.record).not.toHaveBeenCalled();
   });
 
