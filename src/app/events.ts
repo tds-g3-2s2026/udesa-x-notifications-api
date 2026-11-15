@@ -1,6 +1,7 @@
 import { EMAIL_EVENT_TYPES } from './email-events';
 import { FOLLOW_CREATED } from './follows';
 import { INTERACTION_CREATED } from './interactions';
+import { MENTION_CREATED } from './mentions';
 import { USER_DELETED } from './user-deletion';
 
 /**
@@ -17,6 +18,7 @@ export const EVENT_TYPES = [
   USER_DELETED,
   FOLLOW_CREATED,
   INTERACTION_CREATED,
+  MENTION_CREATED,
 ];
 
 function typeOf(body: string): unknown {
@@ -37,11 +39,13 @@ export function routeEvents(handlers: {
   userDeleted: EventHandler;
   followCreated: EventHandler;
   interactionCreated: EventHandler;
+  mentionCreated: EventHandler;
 }): EventHandler {
   const byType: Record<string, EventHandler> = {
     [USER_DELETED]: handlers.userDeleted,
     [FOLLOW_CREATED]: handlers.followCreated,
     [INTERACTION_CREATED]: handlers.interactionCreated,
+    [MENTION_CREATED]: handlers.mentionCreated,
   };
   return (body) => {
     const type = typeOf(body);

@@ -79,6 +79,7 @@ describe('event consumer setup', () => {
       ['notifications-api', 'udesa-x.events', 'user.deleted.v1'],
       ['notifications-api', 'udesa-x.events', 'follow.created.v1'],
       ['notifications-api', 'udesa-x.events', 'interaction.created.v1'],
+      ['notifications-api', 'udesa-x.events', 'mention.created.v1'],
     ]);
   });
 

@@ -15,6 +15,7 @@ import { createEmailEventHandler, EMAIL_EVENT_TYPES } from '../../src/app/email-
 import { routeEvents } from '../../src/app/events';
 import { createFollowCreatedHandler } from '../../src/app/follows';
 import { createInteractionCreatedHandler } from '../../src/app/interactions';
+import { createMentionCreatedHandler } from '../../src/app/mentions';
 import type { PushSender } from '../../src/app/push';
 import { createUserDeletedHandler } from '../../src/app/user-deletion';
 import {
@@ -126,6 +127,12 @@ beforeAll(async () => {
       push,
     }),
     interactionCreated: createInteractionCreatedHandler({
+      notifications: createNotificationStore(notifications()),
+      deviceTokens,
+      preferences,
+      push,
+    }),
+    mentionCreated: createMentionCreatedHandler({
       notifications: createNotificationStore(notifications()),
       deviceTokens,
       preferences,
@@ -257,6 +264,28 @@ describe('interaction.created across the broker', () => {
     expect(await notifications().findOne({ _id: event.id })).toMatchObject({
       recipient_id: account,
       type: 'like',
+      post_id: event.data.post_id,
+    });
+    expect(returned).toHaveLength(0);
+    expect(sent).toHaveLength(0);
+  });
+});
+
+describe('mention.created across the broker', () => {
+  it('is bound to mention.created.v1, adds the entry and pushes to the mentioned account', async () => {
+    const account = randomUUID();
+    deletedAccounts.push(account);
+    const token = `fcm-${randomUUID()}`;
+    await createDeviceTokenStore(deviceTokenCollection(mongo)).register(token, account, new Date());
+    const event = newEvent('mention.created.v1');
+    event.data.mentioned_id = account;
+
+    await publishEvent(event);
+
+    await vi.waitFor(() => expect(pushed).toEqual([[token]]), { timeout: 10_000, interval: 50 });
+    expect(await notifications().findOne({ _id: event.id })).toMatchObject({
+      recipient_id: account,
+      type: 'mention',
       post_id: event.data.post_id,
     });
     expect(returned).toHaveLength(0);

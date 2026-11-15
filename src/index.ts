@@ -7,6 +7,7 @@ import { createEmailEventHandler } from './app/email-events';
 import { routeEvents } from './app/events';
 import { createFollowCreatedHandler } from './app/follows';
 import { createInteractionCreatedHandler } from './app/interactions';
+import { createMentionCreatedHandler } from './app/mentions';
 import { createUserDeletedHandler } from './app/user-deletion';
 import { loadConfig } from './config';
 import {
@@ -93,6 +94,7 @@ const consumer = createEventConsumer(
     }),
     followCreated: createFollowCreatedHandler(delivery),
     interactionCreated: createInteractionCreatedHandler(delivery),
+    mentionCreated: createMentionCreatedHandler(delivery),
   })
 );
 const rabbitmq = await connectRabbitMQ(config.rabbitmqUrl, consumer.setup);

@@ -8,17 +8,19 @@ function setup() {
   const userDeleted = vi.fn<EventHandler>(async () => 'ack');
   const followCreated = vi.fn<EventHandler>(async () => 'ack');
   const interactionCreated = vi.fn<EventHandler>(async () => 'ack');
+  const mentionCreated = vi.fn<EventHandler>(async () => 'ack');
   return {
     email,
     userDeleted,
     followCreated,
     interactionCreated,
-    route: routeEvents({ email, userDeleted, followCreated, interactionCreated }),
+    mentionCreated,
+    route: routeEvents({ email, userDeleted, followCreated, interactionCreated, mentionCreated }),
   };
 }
 
 describe('event routing', () => {
-  it('binds the queue to the five email events, user.deleted, follow.created and interaction.created', () => {
+  it('binds the queue to the five email events, user.deleted, follow.created, interaction.created and mention.created', () => {
     expect(EVENT_TYPES).toEqual([
       'user.registered.v1',
       'email_verification.requested.v1',
@@ -28,6 +30,7 @@ describe('event routing', () => {
       'user.deleted.v1',
       'follow.created.v1',
       'interaction.created.v1',
+      'mention.created.v1',
     ]);
   });
 
@@ -35,6 +38,7 @@ describe('event routing', () => {
     ['user.deleted.v1', 'userDeleted'],
     ['follow.created.v1', 'followCreated'],
     ['interaction.created.v1', 'interactionCreated'],
+    ['mention.created.v1', 'mentionCreated'],
   ] as const)(
     'hands a %s to its own handler, body untouched, and answers what it answers',
     async (type, own) => {
@@ -50,6 +54,7 @@ describe('event routing', () => {
         'userDeleted',
         'followCreated',
         'interactionCreated',
+        'mentionCreated',
       ] as const) {
         if (other !== own) {
           expect(handlers[other]).not.toHaveBeenCalled();
@@ -65,13 +70,14 @@ describe('event routing', () => {
     ['invalid JSON', '{nope'],
     ['JSON null', 'null'],
   ])('hands %s to the email handler, as before', async (_, body) => {
-    const { email, userDeleted, followCreated, interactionCreated, route } = setup();
+    const handlers = setup();
 
-    await route(body);
+    await handlers.route(body);
 
-    expect(email).toHaveBeenCalledWith(body);
-    expect(userDeleted).not.toHaveBeenCalled();
-    expect(followCreated).not.toHaveBeenCalled();
-    expect(interactionCreated).not.toHaveBeenCalled();
+    expect(handlers.email).toHaveBeenCalledWith(body);
+    expect(handlers.userDeleted).not.toHaveBeenCalled();
+    expect(handlers.followCreated).not.toHaveBeenCalled();
+    expect(handlers.interactionCreated).not.toHaveBeenCalled();
+    expect(handlers.mentionCreated).not.toHaveBeenCalled();
   });
 });
