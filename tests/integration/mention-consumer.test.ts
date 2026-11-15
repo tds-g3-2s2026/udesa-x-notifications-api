@@ -9,6 +9,10 @@ import {
   createDeviceTokenStore,
   deviceTokenCollection,
 } from '../../src/infrastructure/device-token-store';
+import {
+  createMentionThreadStore,
+  mentionThreadCollection,
+} from '../../src/infrastructure/mention-thread-store';
 import { createMongoClient } from '../../src/infrastructure/mongodb';
 import {
   createNotificationStore,
@@ -35,6 +39,7 @@ const tokenIds: string[] = [];
 const tokens = () => deviceTokenCollection(mongo);
 const notifications = () => notificationCollection(mongo);
 const preferences = () => preferenceCollection(mongo);
+const threads = () => mentionThreadCollection(mongo);
 
 /** FCM as a double: records every push and reports no token gone. */
 function fakePush() {
@@ -54,6 +59,7 @@ function handler(push: PushSender) {
     deviceTokens: createDeviceTokenStore(tokens()),
     preferences: createPreferenceStore(preferences()),
     push,
+    mentionThreads: createMentionThreadStore(threads()),
   });
 }
 
@@ -83,6 +89,13 @@ function mentionOf(mentioned: string, content?: string): EventEnvelope {
   return event;
 }
 
+/** The mention as made by `author` in the thread whose root post is `thread`. */
+function inThread(mention: EventEnvelope, author: string, thread: string): EventEnvelope {
+  mention.data.author_id = author;
+  mention.data.root_post_id = thread;
+  return mention;
+}
+
 beforeAll(() => {
   mongo = createMongoClient(MONGODB_URL);
 });
@@ -98,6 +111,7 @@ afterAll(async () => {
     tokens().deleteMany({ _id: { $in: tokenIds } }),
     notifications().deleteMany({ recipient_id: { $in: accounts } }),
     preferences().deleteMany({ _id: { $in: accounts } }),
+    threads().deleteMany({ recipient_id: { $in: accounts } }),
   ]);
   await mongo.close();
 });
@@ -200,6 +214,99 @@ describe('mention.created against MongoDB', () => {
     await expect(handler(push)(JSON.stringify(mention))).resolves.toBe('ack');
 
     expect(sent).toHaveLength(0);
+    expect(await notifications().countDocuments({ _id: mention.id })).toBe(1);
+  });
+});
+
+describe('a thread notifies once', () => {
+  it('E4-H4.CA3 - a second mention in the same thread sends nothing', async () => {
+    const mentioned = newAccount();
+    await newDevice(mentioned);
+    const author = newAccount();
+    const thread = randomUUID();
+    const { push, sent } = fakePush();
+
+    await handler(push)(JSON.stringify(inThread(mentionOf(mentioned), author, thread)));
+    const second = inThread(mentionOf(mentioned), author, thread);
+    await expect(handler(push)(JSON.stringify(second))).resolves.toBe('ack');
+
+    expect(sent).toHaveLength(1);
+    expect(await notifications().countDocuments({ recipient_id: mentioned })).toBe(1);
+    expect(await notifications().countDocuments({ _id: second.id })).toBe(0);
+  });
+
+  it('E4-H4.CA3 - a mention in another thread is notified', async () => {
+    const mentioned = newAccount();
+    await newDevice(mentioned);
+    const author = newAccount();
+    const { push, sent } = fakePush();
+
+    await handler(push)(JSON.stringify(inThread(mentionOf(mentioned), author, randomUUID())));
+    await handler(push)(JSON.stringify(inThread(mentionOf(mentioned), author, randomUUID())));
+
+    expect(sent).toHaveLength(2);
+    expect(await notifications().countDocuments({ recipient_id: mentioned })).toBe(2);
+  });
+
+  it('is notified when another author mentions the same account in that thread', async () => {
+    const mentioned = newAccount();
+    await newDevice(mentioned);
+    const thread = randomUUID();
+    const { push, sent } = fakePush();
+
+    await handler(push)(JSON.stringify(inThread(mentionOf(mentioned), newAccount(), thread)));
+    await handler(push)(JSON.stringify(inThread(mentionOf(mentioned), newAccount(), thread)));
+
+    expect(sent).toHaveLength(2);
+  });
+
+  it('is notified when the same author mentions another account in that thread', async () => {
+    const [ana, beto] = [newAccount(), newAccount()];
+    await newDevice(ana);
+    await newDevice(beto);
+    const author = newAccount();
+    const thread = randomUUID();
+    const { push, sent } = fakePush();
+
+    await handler(push)(JSON.stringify(inThread(mentionOf(ana), author, thread)));
+    await handler(push)(JSON.stringify(inThread(mentionOf(beto), author, thread)));
+
+    expect(sent).toHaveLength(2);
+  });
+
+  it('sends one push when two mentions of the same thread are handled at once', async () => {
+    const mentioned = newAccount();
+    await newDevice(mentioned);
+    const author = newAccount();
+    const thread = randomUUID();
+    const { push, sent } = fakePush();
+
+    await Promise.all([
+      handler(push)(JSON.stringify(inThread(mentionOf(mentioned), author, thread))),
+      handler(push)(JSON.stringify(inThread(mentionOf(mentioned), author, thread))),
+    ]);
+
+    expect(sent).toHaveLength(1);
+    expect(await threads().countDocuments({ recipient_id: mentioned })).toBe(1);
+  });
+
+  it('finishes an event that came again after its record was written', async () => {
+    const mentioned = newAccount();
+    await newDevice(mentioned);
+    const author = newAccount();
+    const thread = randomUUID();
+    const mention = inThread(mentionOf(mentioned), author, thread);
+    // What is left when the handler stopped after the record and before the entry.
+    await createMentionThreadStore(threads()).claim(
+      { recipientId: mentioned, authorId: author, threadId: thread },
+      mention.id,
+      new Date(mention.time)
+    );
+    const { push, sent } = fakePush();
+
+    await handler(push)(JSON.stringify(mention));
+
+    expect(sent).toHaveLength(1);
     expect(await notifications().countDocuments({ _id: mention.id })).toBe(1);
   });
 });

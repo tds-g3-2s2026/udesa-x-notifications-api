@@ -18,6 +18,10 @@ import {
 import { createEmailSender } from './infrastructure/email-senders';
 import { createEmailStore, emailCollection } from './infrastructure/email-store';
 import { createEventConsumer } from './infrastructure/event-consumer';
+import {
+  createMentionThreadStore,
+  mentionThreadCollection,
+} from './infrastructure/mention-thread-store';
 import { createMongoClient, mongodbCheck } from './infrastructure/mongodb';
 import {
   createNotificationStore,
@@ -94,7 +98,10 @@ const consumer = createEventConsumer(
     }),
     followCreated: createFollowCreatedHandler(delivery),
     interactionCreated: createInteractionCreatedHandler(delivery),
-    mentionCreated: createMentionCreatedHandler(delivery),
+    mentionCreated: createMentionCreatedHandler({
+      ...delivery,
+      mentionThreads: createMentionThreadStore(mentionThreadCollection(mongo)),
+    }),
   })
 );
 const rabbitmq = await connectRabbitMQ(config.rabbitmqUrl, consumer.setup);

@@ -1,13 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { DeviceTokenStore } from '../../src/app/device-tokens';
-import { PREVIEW_LENGTH, createMentionCreatedHandler, previewOf } from '../../src/app/mentions';
+import {
+  PREVIEW_LENGTH,
+  createMentionCreatedHandler,
+  previewOf,
+  type MentionThreadStore,
+} from '../../src/app/mentions';
 import type { NotificationStore } from '../../src/app/notifications';
 import type { PreferenceStore } from '../../src/app/preferences';
 import type { PushSender } from '../../src/app/push';
 import { exampleEvent, type EventEnvelope } from '../support/contracts';
 
-function setup({ isNew = true } = {}) {
+function setup({ isNew = true, firstInThread = true } = {}) {
   const deviceTokens = {
     register: vi.fn(),
     activeTokensOf: vi.fn<DeviceTokenStore['activeTokensOf']>(async () => ['phone']),
@@ -30,8 +35,17 @@ function setup({ isNew = true } = {}) {
   const push = {
     send: vi.fn<PushSender['send']>(async () => ({ invalidTokens: [] })),
   } satisfies PushSender;
-  const handle = createMentionCreatedHandler({ notifications, deviceTokens, preferences, push });
-  return { handle, deviceTokens, notifications, push };
+  const mentionThreads = {
+    claim: vi.fn<MentionThreadStore['claim']>(async () => firstInThread),
+  } satisfies MentionThreadStore;
+  const handle = createMentionCreatedHandler({
+    notifications,
+    deviceTokens,
+    preferences,
+    push,
+    mentionThreads,
+  });
+  return { handle, deviceTokens, notifications, push, mentionThreads };
 }
 
 /** The first example of the schema, with `content` as the text when given. */

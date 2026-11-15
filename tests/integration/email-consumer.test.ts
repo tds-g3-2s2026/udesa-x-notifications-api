@@ -30,6 +30,10 @@ import {
   EVENTS_EXCHANGE,
   QUEUE,
 } from '../../src/infrastructure/event-consumer';
+import {
+  createMentionThreadStore,
+  mentionThreadCollection,
+} from '../../src/infrastructure/mention-thread-store';
 import { createMongoClient } from '../../src/infrastructure/mongodb';
 import {
   createNotificationStore,
@@ -137,6 +141,7 @@ beforeAll(async () => {
       deviceTokens,
       preferences,
       push,
+      mentionThreads: createMentionThreadStore(mentionThreadCollection(mongo)),
     }),
   });
   consumerConnection = await connectRabbitMQ(RABBITMQ_URL, createEventConsumer(handler).setup);
@@ -159,6 +164,7 @@ beforeEach(() => {
 afterAll(async () => {
   await emails().deleteMany({ _id: { $in: createdIds } });
   await notifications().deleteMany({ recipient_id: { $in: deletedAccounts } });
+  await mentionThreadCollection(mongo).deleteMany({ recipient_id: { $in: deletedAccounts } });
   await processedEventCollection(mongo).deleteMany({ _id: { $in: createdIds } });
   await deviceTokenCollection(mongo).deleteMany({ account_id: { $in: deletedAccounts } });
   await Promise.allSettled([

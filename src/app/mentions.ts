@@ -7,12 +7,28 @@ export const MENTION_CREATED = 'mention.created.v1';
 /** The most the push quotes of the post, the `…` that marks a cut included. */
 export const PREVIEW_LENGTH = 100;
 
+export interface MentionThreadStore {
+  /**
+   * Records that the event `eventId` is the one that told `recipientId` about
+   * the mentions of `authorId` in the thread `threadId`, and answers true when
+   * it is: the thread was new for them, or the record is this very event's, which
+   * came again after a failure and still has to be finished. Answers false when
+   * an earlier event already holds the record: nothing more is sent for the thread.
+   */
+  claim(
+    thread: { recipientId: string; authorId: string; threadId: string },
+    eventId: string,
+    at: Date
+  ): Promise<boolean>;
+}
+
 interface MentionCreated {
   id: string;
   authorId: string;
   authorHandle: string | null;
   mentionedId: string;
   postId: string;
+  rootPostId: string;
   content: string;
   createdAt: Date;
 }
@@ -56,6 +72,9 @@ function parseMentionCreated(body: string): MentionCreated | { error: string } {
   if (!isText(data.post_id)) {
     return { error: 'missing data.post_id' };
   }
+  if (!isText(data.root_post_id)) {
+    return { error: 'missing data.root_post_id' };
+  }
   if (!isText(data.content)) {
     return { error: 'missing data.content' };
   }
@@ -65,6 +84,7 @@ function parseMentionCreated(body: string): MentionCreated | { error: string } {
     authorId: data.author_id.toLowerCase(),
     mentionedId: data.mentioned_id.toLowerCase(),
     postId: data.post_id,
+    rootPostId: data.root_post_id.toLowerCase(),
     content: data.content,
     // Only the text uses it: a handle posts-api did not know is no reason to
     // drop the event.
@@ -98,14 +118,24 @@ export function previewOf(content: string): string {
   return `${kept.join('').trimEnd()}…`;
 }
 
+/** What the handler needs besides what every notifying event needs. */
+export interface MentionDeps extends DeliveryDeps {
+  mentionThreads: MentionThreadStore;
+}
+
 /**
  * A mention in a post or a reply: an entry in the center of the mentioned
  * account, and a push to every device of that account, through the shared
  * delivery. posts-api already leaves out the mentions nobody should hear about
  * (of oneself, by an account the mentioned one muted or blocked).
+ *
+ * What it adds is that a thread notifies once: the first mention of an account
+ * by an author in a thread is told, and the next ones in that same thread are
+ * not, with no end date. The thread is the root post, which travels in the event.
  */
-export function createMentionCreatedHandler(deps: DeliveryDeps) {
+export function createMentionCreatedHandler(deps: MentionDeps) {
   const deliver = createNotificationDelivery(deps);
+  const { mentionThreads } = deps;
 
   return async function handle(body: string): Promise<HandlerResult> {
     const event = parseMentionCreated(body);
@@ -117,7 +147,17 @@ export function createMentionCreatedHandler(deps: DeliveryDeps) {
       return 'dead-letter';
     }
 
-    const { id, authorId, authorHandle, mentionedId, postId, content, createdAt } = event;
+    const { id, authorId, authorHandle, mentionedId, postId, rootPostId, content, createdAt } =
+      event;
+    const first = await mentionThreads.claim(
+      { recipientId: mentionedId, authorId, threadId: rootPostId },
+      id,
+      createdAt
+    );
+    if (!first) {
+      logEvent('info', 'Mention in a thread already notified', { id, type: MENTION_CREATED });
+      return 'ack';
+    }
     return deliver(
       MENTION_CREATED,
       {

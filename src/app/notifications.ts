@@ -10,7 +10,10 @@ export interface Notification {
   id: string;
   /** The account that sees it. */
   recipientId: string;
-  /** `follow`, `like`, `retweet` or `reply` today. Open on purpose: new kinds only add values. */
+  /**
+   * `follow`, `like`, `retweet`, `reply` or `mention` today. Open on purpose: new kinds only add
+   * values.
+   */
   type: string;
   /** Who did it. The handle is copied from the event as it came, and may be null. */
   actor: { id: string; handle: string | null };
