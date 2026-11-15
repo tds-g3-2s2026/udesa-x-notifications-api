@@ -23,6 +23,7 @@ import {
   ensureNotificationIndexes,
   notificationCollection,
 } from './infrastructure/notification-store';
+import { createPreferenceStore, preferenceCollection } from './infrastructure/preference-store';
 import {
   createProcessedEventStore,
   processedEventCollection,
@@ -98,6 +99,7 @@ const app = createApp({
   auth: config.auth,
   notifications: notificationStore,
   deviceTokens: deviceTokenStore,
+  preferences: createPreferenceStore(preferenceCollection(mongo)),
 });
 
 // Kubernetes sends SIGTERM before stopping the pod: the consumer finishes the
