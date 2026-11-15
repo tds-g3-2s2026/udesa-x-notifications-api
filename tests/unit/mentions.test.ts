@@ -1,3 +1,4 @@
+import { MongoServerError, type Collection } from 'mongodb';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { DeviceTokenStore } from '../../src/app/device-tokens';
@@ -10,6 +11,10 @@ import {
 import type { NotificationStore } from '../../src/app/notifications';
 import type { PreferenceStore } from '../../src/app/preferences';
 import type { PushSender } from '../../src/app/push';
+import {
+  createMentionThreadStore,
+  type MentionThreadRecord,
+} from '../../src/infrastructure/mention-thread-store';
 import { exampleEvent, type EventEnvelope } from '../support/contracts';
 
 function setup({ isNew = true, firstInThread = true } = {}) {
@@ -179,6 +184,39 @@ describe('mention.created handler', () => {
     );
   });
 
+  it('asks about the thread of the root post, with the ids in lowercase', async () => {
+    const { handle, mentionThreads } = setup();
+    const mention = event();
+
+    await handle(
+      withData({
+        author_id: mention.data.author_id.toUpperCase(),
+        mentioned_id: mention.data.mentioned_id.toUpperCase(),
+        root_post_id: mention.data.root_post_id.toUpperCase(),
+      })
+    );
+
+    expect(mentionThreads.claim).toHaveBeenCalledExactlyOnceWith(
+      {
+        recipientId: mention.data.mentioned_id,
+        authorId: mention.data.author_id,
+        threadId: mention.data.root_post_id,
+      },
+      mention.id,
+      new Date(mention.time)
+    );
+  });
+
+  it('sends and adds nothing when the thread already notified that account', async () => {
+    const { handle, deviceTokens, notifications, push } = setup({ firstInThread: false });
+
+    await expect(handle(JSON.stringify(event()))).resolves.toBe('ack');
+
+    expect(deviceTokens.activeTokensOf).not.toHaveBeenCalled();
+    expect(notifications.add).not.toHaveBeenCalled();
+    expect(push.send).not.toHaveBeenCalled();
+  });
+
   it('does not push again for an event whose entry already exists', async () => {
     const { handle, push } = setup({ isNew: false });
 
@@ -196,14 +234,120 @@ describe('mention.created handler', () => {
     ['no author_id', withData({ author_id: undefined })],
     ['no mentioned_id', withData({ mentioned_id: undefined })],
     ['no post_id', withData({ post_id: undefined })],
+    ['no root_post_id', withData({ root_post_id: undefined })],
     ['no content', withData({ content: undefined })],
     ['an empty content', withData({ content: '' })],
   ])('sends %s to the dead letter queue, with nothing recorded or sent', async (_, body) => {
-    const { handle, notifications, push } = setup();
+    const { handle, notifications, push, mentionThreads } = setup();
 
     await expect(handle(body)).resolves.toBe('dead-letter');
 
+    expect(mentionThreads.claim).not.toHaveBeenCalled();
     expect(notifications.add).not.toHaveBeenCalled();
     expect(push.send).not.toHaveBeenCalled();
+  });
+});
+
+describe('mention thread store', () => {
+  const thread = { recipientId: 'ana', authorId: 'beto', threadId: 'root' };
+  const at = new Date('2026-11-15T12:00:00Z');
+  const duplicate = () => new MongoServerError({ message: 'E11000 duplicate key', code: 11000 });
+
+  // Only what `claim` calls. The rest runs against a real MongoDB in
+  // tests/integration; these are the outcomes hard to cause there.
+  function storeOver(collection: {
+    createIndex?: () => Promise<string>;
+    insertOne?: () => Promise<unknown>;
+    countDocuments?: () => Promise<number>;
+  }) {
+    const threads = {
+      createIndex: vi.fn(collection.createIndex ?? (async () => 'index')),
+      insertOne: vi.fn(collection.insertOne ?? (async () => ({}))),
+      countDocuments: vi.fn(collection.countDocuments ?? (async () => 0)),
+    };
+    const store = createMentionThreadStore(threads as unknown as Collection<MentionThreadRecord>);
+    return { threads, store };
+  }
+
+  it('records the event and answers that it holds the thread', async () => {
+    const { threads, store } = storeOver({});
+
+    await expect(store.claim(thread, 'event-1', at)).resolves.toBe(true);
+
+    expect(threads.insertOne).toHaveBeenCalledExactlyOnceWith({
+      _id: 'event-1',
+      recipient_id: 'ana',
+      author_id: 'beto',
+      thread_id: 'root',
+      created_at: at,
+    });
+  });
+
+  it('answers that another event holds the thread when the key is taken by one', async () => {
+    const { store } = storeOver({
+      insertOne: async () => {
+        throw duplicate();
+      },
+      countDocuments: async () => 0,
+    });
+
+    await expect(store.claim(thread, 'event-2', at)).resolves.toBe(false);
+  });
+
+  it('answers that it holds the thread when the key is taken by this very event', async () => {
+    const { threads, store } = storeOver({
+      insertOne: async () => {
+        throw duplicate();
+      },
+      countDocuments: async () => 1,
+    });
+
+    await expect(store.claim(thread, 'event-1', at)).resolves.toBe(true);
+
+    expect(threads.countDocuments).toHaveBeenCalledWith({ _id: 'event-1' }, { limit: 1 });
+  });
+
+  it.each([
+    ['another MongoDB error', new MongoServerError({ message: 'Not authorized', code: 13 })],
+    ['a connection error', new Error('connect ECONNREFUSED')],
+  ])('throws %s instead of taking it for a taken key', async (_name, error) => {
+    const { store } = storeOver({
+      insertOne: async () => {
+        throw error;
+      },
+    });
+
+    await expect(store.claim(thread, 'event-1', at)).rejects.toBe(error);
+  });
+
+  it('creates the unique index once, before the first record', async () => {
+    const { threads, store } = storeOver({});
+
+    await store.claim(thread, 'event-1', at);
+    await store.claim({ ...thread, threadId: 'other' }, 'event-2', at);
+
+    expect(threads.createIndex).toHaveBeenCalledExactlyOnceWith(
+      { recipient_id: 1, author_id: 1, thread_id: 1 },
+      { unique: true }
+    );
+    expect(threads.createIndex.mock.invocationCallOrder[0]).toBeLessThan(
+      threads.insertOne.mock.invocationCallOrder[0]
+    );
+  });
+
+  it('records nothing while the index cannot be created, and tries again on the next one', async () => {
+    const failure = new Error('connect ECONNREFUSED');
+    const { threads, store } = storeOver({
+      createIndex: vi
+        .fn<() => Promise<string>>()
+        .mockRejectedValueOnce(failure)
+        .mockResolvedValue('index'),
+    });
+
+    await expect(store.claim(thread, 'event-1', at)).rejects.toBe(failure);
+    expect(threads.insertOne).not.toHaveBeenCalled();
+
+    await expect(store.claim(thread, 'event-1', at)).resolves.toBe(true);
+    expect(threads.createIndex).toHaveBeenCalledTimes(2);
   });
 });
