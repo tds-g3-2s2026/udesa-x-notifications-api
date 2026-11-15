@@ -1,16 +1,28 @@
 import { randomUUID } from 'node:crypto';
 
 import type { MongoClient } from 'mongodb';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { createFollowCreatedHandler } from '../../src/app/follows';
+import { createInteractionCreatedHandler } from '../../src/app/interactions';
 import { NOTIFICATION_TYPES, wantsPush, type NotificationType } from '../../src/app/preferences';
+import type { PushMessage, PushSender } from '../../src/app/push';
+import {
+  createDeviceTokenStore,
+  deviceTokenCollection,
+} from '../../src/infrastructure/device-token-store';
 import { createMongoClient } from '../../src/infrastructure/mongodb';
+import {
+  createNotificationStore,
+  notificationCollection,
+} from '../../src/infrastructure/notification-store';
 import {
   createPreferenceStore,
   preferenceCollection,
 } from '../../src/infrastructure/preference-store';
 import { buildApp } from '../support/app';
 import { issueToken } from '../support/auth';
+import { exampleEvent } from '../support/contracts';
 
 // The routes with the real store: the dotted-path upsert is what lets one
 // switch be saved without touching the others, and only MongoDB can prove it.
@@ -21,8 +33,11 @@ if (!MONGODB_URL) {
 
 let mongo: MongoClient;
 const accounts: string[] = [];
+const tokenIds: string[] = [];
 
 const preferences = () => preferenceCollection(mongo);
+const tokens = () => deviceTokenCollection(mongo);
+const notifications = () => notificationCollection(mongo);
 
 function newAccount(): string {
   const account = randomUUID();
@@ -51,8 +66,17 @@ beforeAll(() => {
   mongo = createMongoClient(MONGODB_URL);
 });
 
+beforeEach(() => {
+  vi.restoreAllMocks();
+  vi.spyOn(console, 'info').mockImplementation(() => {});
+});
+
 afterAll(async () => {
-  await preferences().deleteMany({ _id: { $in: accounts } });
+  await Promise.all([
+    preferences().deleteMany({ _id: { $in: accounts } }),
+    tokens().deleteMany({ _id: { $in: tokenIds } }),
+    notifications().deleteMany({ recipient_id: { $in: accounts } }),
+  ]);
   await mongo.close();
 });
 
@@ -208,5 +232,128 @@ describe('PUT /api/notifications/preferences against MongoDB', () => {
       errors: errors.map((error) => ({ ...error, message: expect.any(String) })),
     });
     expect(await preferences().countDocuments({ _id: account })).toBe(0);
+  });
+});
+
+/** FCM as a double: records every push. */
+function fakePush() {
+  const sent: { tokens: string[]; message: PushMessage }[] = [];
+  const push: PushSender = {
+    async send(tokens, message) {
+      sent.push({ tokens, message });
+      return { invalidTokens: [] };
+    },
+  };
+  return { push, sent };
+}
+
+/** The handlers that notify, with the real stores and only FCM as a double. */
+function handlers(push: PushSender) {
+  const deps = {
+    notifications: createNotificationStore(notifications()),
+    deviceTokens: createDeviceTokenStore(tokens()),
+    preferences: createPreferenceStore(preferences()),
+    push,
+  };
+  return {
+    interaction: createInteractionCreatedHandler(deps),
+    follow: createFollowCreatedHandler(deps),
+  };
+}
+
+async function newDevice(account: string): Promise<string> {
+  const token = `fcm-${randomUUID()}`;
+  tokenIds.push(token);
+  await createDeviceTokenStore(tokens()).register(token, account, new Date());
+  return token;
+}
+
+/** A fresh interaction of `kind` on a post of `author`. */
+function interactionOn(author: string, kind: string) {
+  const event = exampleEvent('interaction.created.v1', randomUUID());
+  event.data.kind = kind;
+  event.data.actor_id = randomUUID();
+  event.data.post_author_id = author;
+  if (kind === 'reply') {
+    event.data.reply_id = randomUUID();
+  }
+  return event;
+}
+
+describe('preferences before the push against MongoDB', () => {
+  it('E4-H5.CA2 - sends no push for a type the user turned off', async () => {
+    const account = newAccount();
+    await newDevice(account);
+    await put(account, { like: false });
+    const { push, sent } = fakePush();
+    const like = interactionOn(account, 'like');
+
+    await expect(handlers(push).interaction(JSON.stringify(like))).resolves.toBe('ack');
+
+    expect(sent).toHaveLength(0);
+    // The preference is about alerts: the center shows the entry all the same.
+    expect(await notifications().findOne({ _id: like.id })).toMatchObject({
+      recipient_id: account,
+      type: 'like',
+      deleted_at: null,
+    });
+  });
+
+  it('E4-H5.CA2 - sends the push when the user never chose', async () => {
+    const account = newAccount();
+    const phone = await newDevice(account);
+    const { push, sent } = fakePush();
+
+    await handlers(push).interaction(JSON.stringify(interactionOn(account, 'like')));
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0].tokens).toEqual([phone]);
+  });
+
+  it('turns off only the type the user chose, for every kind of notification', async () => {
+    const account = newAccount();
+    await newDevice(account);
+    await put(account, { like: false, follow: false });
+    const { push, sent } = fakePush();
+    const { interaction, follow } = handlers(push);
+
+    await interaction(JSON.stringify(interactionOn(account, 'like')));
+    const followEvent = exampleEvent('follow.created.v1', randomUUID());
+    followEvent.data.followee_id = account;
+    await follow(JSON.stringify(followEvent));
+    expect(sent).toHaveLength(0);
+
+    await interaction(JSON.stringify(interactionOn(account, 'retweet')));
+    expect(sent.map((s) => s.message.data.type)).toEqual(['retweet']);
+  });
+
+  it('sends the push again once the user turns the type back on', async () => {
+    const account = newAccount();
+    await newDevice(account);
+    const { push, sent } = fakePush();
+    const { interaction } = handlers(push);
+
+    await put(account, { reply: false });
+    await interaction(JSON.stringify(interactionOn(account, 'reply')));
+    await put(account, { reply: true });
+    await interaction(JSON.stringify(interactionOn(account, 'reply')));
+
+    expect(sent).toHaveLength(1);
+  });
+
+  it('does not push later an event that arrived while the type was off', async () => {
+    const account = newAccount();
+    await newDevice(account);
+    const { push, sent } = fakePush();
+    const { interaction } = handlers(push);
+    const like = JSON.stringify(interactionOn(account, 'like'));
+
+    await put(account, { like: false });
+    await interaction(like);
+    await put(account, { like: true });
+    await interaction(like);
+
+    // The first delivery left the entry, which is what marks the event as seen.
+    expect(sent).toHaveLength(0);
   });
 });
