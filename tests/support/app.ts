@@ -1,6 +1,7 @@
 import { createApp, type AppDependencies } from '../../src/api/app';
 import type { DeviceTokenStore } from '../../src/app/device-tokens';
 import type { NotificationStore } from '../../src/app/notifications';
+import type { PreferenceStore } from '../../src/app/preferences';
 import { issueToken, TEST_AUTH } from './auth';
 
 // A test that reaches a store without handing one in fails loudly.
@@ -19,6 +20,11 @@ const NO_DEVICE_TOKENS: DeviceTokenStore = {
   softDelete: noStore('device token'),
   softDeleteOwnedBy: noStore('device token'),
 };
+const NO_PREFERENCES: PreferenceStore = {
+  chosenBy: noStore('preference'),
+  set: noStore('preference'),
+  deleteOwnedBy: noStore('preference'),
+};
 
 /** The app with nothing to check, unless the test says otherwise. */
 export function buildApp(dependencies: Partial<AppDependencies> = {}) {
@@ -27,6 +33,7 @@ export function buildApp(dependencies: Partial<AppDependencies> = {}) {
     auth: TEST_AUTH,
     notifications: NO_NOTIFICATIONS,
     deviceTokens: NO_DEVICE_TOKENS,
+    preferences: NO_PREFERENCES,
     ...dependencies,
   });
 }
