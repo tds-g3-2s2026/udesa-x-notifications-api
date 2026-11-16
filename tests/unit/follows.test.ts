@@ -96,6 +96,18 @@ describe('follow.created handler', () => {
     );
   });
 
+  it('does not double the @ of a handle that already carries it, as users-api handles do', async () => {
+    const { handle, push } = setup();
+    const follow = event();
+
+    await handle(JSON.stringify({ ...follow, data: { ...follow.data, follower_handle: '@ana' } }));
+
+    expect(push.send).toHaveBeenCalledWith(
+      expect.any(Array),
+      expect.objectContaining({ body: '@ana te empezó a seguir' })
+    );
+  });
+
   it('works with the account ids in lowercase, the way requireAccount stores them', async () => {
     const { handle, deviceTokens, notifications, push } = setup();
     const follow = event();

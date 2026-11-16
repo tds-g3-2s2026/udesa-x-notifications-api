@@ -6,6 +6,7 @@ import { createApp } from './api/app';
 import { createEmailEventHandler } from './app/email-events';
 import { routeEvents } from './app/events';
 import { createFollowCreatedHandler } from './app/follows';
+import { createInteractionCreatedHandler } from './app/interactions';
 import { createUserDeletedHandler } from './app/user-deletion';
 import { loadConfig } from './config';
 import {
@@ -65,6 +66,12 @@ ensureDeviceTokenIndexes(deviceTokens).catch((error: unknown) =>
 
 const notificationStore = createNotificationStore(notifications);
 const deviceTokenStore = createDeviceTokenStore(deviceTokens);
+// Every notifying event delivers through the same stores and push sender.
+const delivery = {
+  notifications: notificationStore,
+  deviceTokens: deviceTokenStore,
+  push: createPushSender(config.push),
+};
 
 // Starts consuming as soon as RabbitMQ is reachable, and again after every
 // reconnection.
@@ -80,11 +87,8 @@ const consumer = createEventConsumer(
       notifications: notificationStore,
       processedEvents: createProcessedEventStore(processedEventCollection(mongo)),
     }),
-    followCreated: createFollowCreatedHandler({
-      notifications: notificationStore,
-      deviceTokens: deviceTokenStore,
-      push: createPushSender(config.push),
-    }),
+    followCreated: createFollowCreatedHandler(delivery),
+    interactionCreated: createInteractionCreatedHandler(delivery),
   })
 );
 const rabbitmq = await connectRabbitMQ(config.rabbitmqUrl, consumer.setup);

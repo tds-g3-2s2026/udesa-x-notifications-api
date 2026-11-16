@@ -14,6 +14,7 @@ import type { EmailMessage, EmailSender } from '../../src/app/email';
 import { createEmailEventHandler, EMAIL_EVENT_TYPES } from '../../src/app/email-events';
 import { routeEvents } from '../../src/app/events';
 import { createFollowCreatedHandler } from '../../src/app/follows';
+import { createInteractionCreatedHandler } from '../../src/app/interactions';
 import type { PushSender } from '../../src/app/push';
 import { createUserDeletedHandler } from '../../src/app/user-deletion';
 import {
@@ -113,6 +114,11 @@ beforeAll(async () => {
       processedEvents: createProcessedEventStore(processedEventCollection(mongo)),
     }),
     followCreated: createFollowCreatedHandler({
+      notifications: createNotificationStore(notifications()),
+      deviceTokens,
+      push,
+    }),
+    interactionCreated: createInteractionCreatedHandler({
       notifications: createNotificationStore(notifications()),
       deviceTokens,
       push,
@@ -222,6 +228,28 @@ describe('follow.created across the broker', () => {
     expect(await notifications().findOne({ _id: event.id })).toMatchObject({
       recipient_id: account,
       type: 'follow',
+    });
+    expect(returned).toHaveLength(0);
+    expect(sent).toHaveLength(0);
+  });
+});
+
+describe('interaction.created across the broker', () => {
+  it('is bound to interaction.created.v1, adds the entry and pushes to the post author', async () => {
+    const account = randomUUID();
+    deletedAccounts.push(account);
+    const token = `fcm-${randomUUID()}`;
+    await createDeviceTokenStore(deviceTokenCollection(mongo)).register(token, account, new Date());
+    const event = newEvent('interaction.created.v1');
+    event.data.post_author_id = account;
+
+    await publishEvent(event);
+
+    await vi.waitFor(() => expect(pushed).toEqual([[token]]), { timeout: 10_000, interval: 50 });
+    expect(await notifications().findOne({ _id: event.id })).toMatchObject({
+      recipient_id: account,
+      type: 'like',
+      post_id: event.data.post_id,
     });
     expect(returned).toHaveLength(0);
     expect(sent).toHaveLength(0);
