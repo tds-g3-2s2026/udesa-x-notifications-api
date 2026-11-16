@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import type { MongoClient } from 'mongodb';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { NOTIFICATION_TYPES, type NotificationType } from '../../src/app/preferences';
+import { NOTIFICATION_TYPES, wantsPush, type NotificationType } from '../../src/app/preferences';
 import { createMongoClient } from '../../src/infrastructure/mongodb';
 import {
   createPreferenceStore,
@@ -71,6 +71,36 @@ describe('GET /api/notifications/preferences against MongoDB', () => {
     const res = await buildApp().request('/api/notifications/preferences');
 
     expect(res.status).toBe(401);
+  });
+});
+
+describe('wantsPush against MongoDB', () => {
+  const store = () => createPreferenceStore(preferences());
+
+  it('wants every push for an account that never chose', async () => {
+    const account = newAccount();
+
+    for (const type of NOTIFICATION_TYPES) {
+      expect(await wantsPush(store(), account, type)).toBe(true);
+    }
+  });
+
+  it('turns off only the type the account turned off, until it turns it back on', async () => {
+    const account = newAccount();
+
+    await store().set(account, { like: false }, new Date());
+    expect(await wantsPush(store(), account, 'like')).toBe(false);
+    expect(await wantsPush(store(), account, 'retweet')).toBe(true);
+
+    await store().set(account, { like: true }, new Date());
+    expect(await wantsPush(store(), account, 'like')).toBe(true);
+  });
+
+  it('wants the push of a type the service does not know, since nothing turns it off', async () => {
+    const account = newAccount();
+    await store().set(account, { like: false }, new Date());
+
+    expect(await wantsPush(store(), account, 'share')).toBe(true);
   });
 });
 
