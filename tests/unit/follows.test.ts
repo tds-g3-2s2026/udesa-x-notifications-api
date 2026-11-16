@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { DeviceTokenStore } from '../../src/app/device-tokens';
 import { createFollowCreatedHandler } from '../../src/app/follows';
 import type { NotificationStore } from '../../src/app/notifications';
+import type { PreferenceStore } from '../../src/app/preferences';
 import type { PushSender } from '../../src/app/push';
 import { exampleEvent } from '../support/contracts';
 
@@ -29,14 +30,26 @@ function setup({ tokens = ['phone', 'tablet'], isNew = true, invalid = [] as str
     softDelete: vi.fn(),
     softDeleteOwnedBy: vi.fn(),
   } satisfies NotificationStore;
+  // An account that never chose: everything on.
+  const preferences = {
+    chosenBy: vi.fn<PreferenceStore['chosenBy']>(async () => ({})),
+    set: vi.fn(),
+    deleteOwnedBy: vi.fn(),
+  } satisfies PreferenceStore;
   const push = {
     send: vi.fn<PushSender['send']>(async () => {
       calls.push('push');
       return { invalidTokens: invalid };
     }),
   } satisfies PushSender;
-  const handle = createFollowCreatedHandler({ notifications, deviceTokens, push, now: () => NOW });
-  return { handle, deviceTokens, notifications, push, calls };
+  const handle = createFollowCreatedHandler({
+    notifications,
+    deviceTokens,
+    preferences,
+    push,
+    now: () => NOW,
+  });
+  return { handle, deviceTokens, notifications, preferences, push, calls };
 }
 
 const event = () => exampleEvent('follow.created.v1');

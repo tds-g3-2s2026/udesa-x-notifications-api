@@ -67,10 +67,12 @@ ensureDeviceTokenIndexes(deviceTokens).catch((error: unknown) =>
 
 const notificationStore = createNotificationStore(notifications);
 const deviceTokenStore = createDeviceTokenStore(deviceTokens);
+const preferenceStore = createPreferenceStore(preferenceCollection(mongo));
 // Every notifying event delivers through the same stores and push sender.
 const delivery = {
   notifications: notificationStore,
   deviceTokens: deviceTokenStore,
+  preferences: preferenceStore,
   push: createPushSender(config.push),
 };
 
@@ -99,7 +101,7 @@ const app = createApp({
   auth: config.auth,
   notifications: notificationStore,
   deviceTokens: deviceTokenStore,
-  preferences: createPreferenceStore(preferenceCollection(mongo)),
+  preferences: preferenceStore,
 });
 
 // Kubernetes sends SIGTERM before stopping the pod: the consumer finishes the
