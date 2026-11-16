@@ -2,6 +2,7 @@ import { logEvent } from '../infrastructure/telemetry';
 import type { DeviceTokenStore } from './device-tokens';
 import type { HandlerResult } from './events';
 import type { NotificationStore } from './notifications';
+import type { PreferenceStore } from './preferences';
 
 export const USER_DELETED = 'user.deleted.v1';
 
@@ -57,13 +58,16 @@ function parseUserDeleted(body: string): UserDeleted | { error: string } {
 
 /**
  * When an account is deleted, its device tokens and its notifications are
- * marked deleted with the instant of the deletion. Nothing is removed.
+ * marked deleted with the instant of the deletion. Nothing is removed there.
+ * Its notification preferences are the exception: they are history of nothing,
+ * so they are deleted outright.
  *
  * MongoDB runs here without transactions across documents, so the steps are
- * ordered to survive a crash between them: both updates first, the record of
- * the event last. A failure throws, the consumer requeues the message and the
- * retry does the whole thing again. That is safe because both updates skip
- * what is already deleted, and the date of the first pass stays.
+ * ordered to survive a crash between them: the three cleanups first, the
+ * record of the event last. A failure throws, the consumer requeues the message
+ * and the retry does the whole thing again. That is safe because the updates
+ * skip what is already deleted, the date of the first pass stays, and deleting
+ * preferences that are already gone changes nothing.
  *
  * Two deliveries of the same event handled at once can both get past the
  * check and both run the updates. Unlike an email, that sends nothing twice:
@@ -72,10 +76,17 @@ function parseUserDeleted(body: string): UserDeleted | { error: string } {
 export function createUserDeletedHandler(deps: {
   deviceTokens: DeviceTokenStore;
   notifications: NotificationStore;
+  preferences: PreferenceStore;
   processedEvents: ProcessedEventStore;
   now?: () => Date;
 }) {
-  const { deviceTokens, notifications, processedEvents, now = () => new Date() } = deps;
+  const {
+    deviceTokens,
+    notifications,
+    preferences,
+    processedEvents,
+    now = () => new Date(),
+  } = deps;
 
   return async function handle(body: string): Promise<HandlerResult> {
     const event = parseUserDeleted(body);
@@ -95,8 +106,9 @@ export function createUserDeletedHandler(deps: {
 
     await deviceTokens.softDeleteOwnedBy(userId, deletedAt);
     await notifications.softDeleteOwnedBy(userId, deletedAt);
+    await preferences.deleteOwnedBy(userId);
     await processedEvents.record({ id, type: USER_DELETED, userId }, now());
-    logEvent('info', 'Device tokens and notifications of a deleted account soft-deleted', {
+    logEvent('info', 'Tokens, notifications and preferences of a deleted account cleaned up', {
       id,
       userId,
     });

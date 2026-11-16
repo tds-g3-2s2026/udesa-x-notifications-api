@@ -116,6 +116,7 @@ beforeAll(async () => {
     userDeleted: createUserDeletedHandler({
       deviceTokens,
       notifications: createNotificationStore(notifications()),
+      preferences,
       processedEvents: createProcessedEventStore(processedEventCollection(mongo)),
     }),
     followCreated: createFollowCreatedHandler({

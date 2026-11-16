@@ -14,6 +14,10 @@ import {
   notificationCollection,
 } from '../../src/infrastructure/notification-store';
 import {
+  createPreferenceStore,
+  preferenceCollection,
+} from '../../src/infrastructure/preference-store';
+import {
   createProcessedEventStore,
   processedEventCollection,
 } from '../../src/infrastructure/processed-event-store';
@@ -34,12 +38,14 @@ const tokenIds: string[] = [];
 
 const tokens = () => deviceTokenCollection(mongo);
 const notifications = () => notificationCollection(mongo);
+const preferences = () => preferenceCollection(mongo);
 const processed = () => processedEventCollection(mongo);
 
 function handler() {
   return createUserDeletedHandler({
     deviceTokens: createDeviceTokenStore(tokens()),
     notifications: createNotificationStore(notifications()),
+    preferences: createPreferenceStore(preferences()),
     processedEvents: createProcessedEventStore(processed()),
   });
 }
@@ -58,7 +64,7 @@ function deletionOf(account: string): EventEnvelope {
   return event;
 }
 
-/** A device token and two notifications for the account. */
+/** A device token, two notifications and a preference for the account. */
 async function seed(account: string) {
   const token = `fcm-${randomUUID()}`;
   tokenIds.push(token);
@@ -68,6 +74,7 @@ async function seed(account: string) {
   for (const notification of ids) {
     await store.add(notification);
   }
+  await createPreferenceStore(preferences()).set(account, { like: false }, new Date());
   return { token, notificationIds: ids.map((n) => n.id) };
 }
 
@@ -84,6 +91,7 @@ afterAll(async () => {
   await Promise.all([
     tokens().deleteMany({ _id: { $in: tokenIds } }),
     notifications().deleteMany({ recipient_id: { $in: accounts } }),
+    preferences().deleteMany({ _id: { $in: accounts } }),
     processed().deleteMany({ _id: { $in: eventIds } }),
   ]);
   await mongo.close();
@@ -107,6 +115,16 @@ describe('user.deleted against MongoDB', () => {
     }
   });
 
+  it('deletes the preferences of the account, so it reads as one that never chose', async () => {
+    const account = newAccount();
+    await seed(account);
+
+    await handler()(JSON.stringify(deletionOf(account)));
+
+    expect(await preferences().countDocuments({ _id: account })).toBe(0);
+    expect(await createPreferenceStore(preferences()).chosenBy(account)).toEqual({});
+  });
+
   it('touches nothing of other accounts', async () => {
     const account = newAccount();
     const other = newAccount();
@@ -117,6 +135,7 @@ describe('user.deleted against MongoDB', () => {
 
     expect((await tokens().findOne({ _id: token }))?.deleted_at).toBeNull();
     expect(await notifications().countDocuments({ recipient_id: other, deleted_at: null })).toBe(2);
+    expect(await preferences().countDocuments({ _id: other })).toBe(1);
   });
 
   it('records the event, and drops it when it arrives again', async () => {

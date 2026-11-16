@@ -209,6 +209,14 @@ Se guardan en la colección `notification_preferences`, un documento por cuenta 
 necesita migración. El `PUT` escribe cada tipo con su propia ruta (`preferences.like`) en un único
 `upsert`, y dos switches guardados a la vez no se pisan.
 
+Antes de mandar un push, `src/app/delivery.ts` (el único lugar que lo manda) lee la preferencia de
+quien lo recibe por el `type` de la notificación (`E4-H5` CA.2). Si lo apagó, la notificación se
+guarda igual en el centro y el push no sale: la preferencia es sobre las alertas, no sobre el
+historial. Como el chequeo es por `type` y no está en cada consumidor, un tipo nuevo, como las
+menciones, queda cubierto sin tocar el suyo. Un tipo que la cuenta nunca eligió, o que el servicio
+no conoce, se manda. Si MongoDB falla al leerla, el mensaje vuelve a la cola sin haber hecho nada,
+como con los tokens.
+
 ## Configuración
 
 | Variable                      | Default                         | Para qué                                                                |
@@ -329,16 +337,19 @@ Qué pasa con lo que no sale bien:
 
 Cuando `users-api` publica `user.deleted.v1`, el servicio marca con `deleted_at` (el `time` del
 evento) los device tokens de la cuenta (`device_tokens`) y las notificaciones que recibió
-(`notifications`). No borra ningún documento. Un token borrado no recibe más push, y vuelve a
+(`notifications`). No borra ninguno de esos documentos. Un token borrado no recibe más push, y vuelve a
 estar vivo si alguien inicia sesión en ese dispositivo: el registro le pone `deleted_at: null`.
+Las preferencias de notificación de la cuenta (`notification_preferences`) sí se borran: no son
+historial de nada, y una cuenta sin documento queda como una que nunca eligió.
 
 La idempotencia es por `id` del evento, con un documento por evento procesado en
 `processed_events` (`_id`, `type`, `user_id`, `processed_at`). Como no hay transacciones entre
 documentos, el orden importa:
 
 1. Si el `id` ya está en `processed_events`, se descarta y se confirma (`ack`).
-2. Se marcan los tokens y después las notificaciones. Cada `updateMany` filtra por
-   `deleted_at: null`, así que repetirlo no cambia nada y conserva la fecha del primer borrado.
+2. Se marcan los tokens y después las notificaciones, y se borran las preferencias. Cada
+   `updateMany` filtra por `deleted_at: null`, así que repetirlo no cambia nada y conserva la fecha
+   del primer borrado; borrar unas preferencias que ya no están tampoco cambia nada.
 3. Recién entonces se guarda el evento en `processed_events` y se hace `ack`.
 
 Si MongoDB falla a mitad de camino, el mensaje vuelve a la cola y el reintento termina lo que
