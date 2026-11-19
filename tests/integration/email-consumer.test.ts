@@ -15,6 +15,7 @@ import { createEmailEventHandler, EMAIL_EVENT_TYPES } from '../../src/app/email-
 import { routeEvents } from '../../src/app/events';
 import { createFollowCreatedHandler } from '../../src/app/follows';
 import { createInteractionCreatedHandler } from '../../src/app/interactions';
+import { createMentionCreatedHandler } from '../../src/app/mentions';
 import type { PushSender } from '../../src/app/push';
 import { createUserDeletedHandler } from '../../src/app/user-deletion';
 import {
@@ -29,6 +30,10 @@ import {
   EVENTS_EXCHANGE,
   QUEUE,
 } from '../../src/infrastructure/event-consumer';
+import {
+  createMentionThreadStore,
+  mentionThreadCollection,
+} from '../../src/infrastructure/mention-thread-store';
 import { createMongoClient } from '../../src/infrastructure/mongodb';
 import {
   createNotificationStore,
@@ -131,6 +136,13 @@ beforeAll(async () => {
       preferences,
       push,
     }),
+    mentionCreated: createMentionCreatedHandler({
+      notifications: createNotificationStore(notifications()),
+      deviceTokens,
+      preferences,
+      push,
+      mentionThreads: createMentionThreadStore(mentionThreadCollection(mongo)),
+    }),
   });
   consumerConnection = await connectRabbitMQ(RABBITMQ_URL, createEventConsumer(handler).setup);
   await vi.waitFor(() => consumerConnection.check(), { timeout: 15_000, interval: 100 });
@@ -152,6 +164,7 @@ beforeEach(() => {
 afterAll(async () => {
   await emails().deleteMany({ _id: { $in: createdIds } });
   await notifications().deleteMany({ recipient_id: { $in: deletedAccounts } });
+  await mentionThreadCollection(mongo).deleteMany({ recipient_id: { $in: deletedAccounts } });
   await processedEventCollection(mongo).deleteMany({ _id: { $in: createdIds } });
   await deviceTokenCollection(mongo).deleteMany({ account_id: { $in: deletedAccounts } });
   await Promise.allSettled([
@@ -257,6 +270,28 @@ describe('interaction.created across the broker', () => {
     expect(await notifications().findOne({ _id: event.id })).toMatchObject({
       recipient_id: account,
       type: 'like',
+      post_id: event.data.post_id,
+    });
+    expect(returned).toHaveLength(0);
+    expect(sent).toHaveLength(0);
+  });
+});
+
+describe('mention.created across the broker', () => {
+  it('is bound to mention.created.v1, adds the entry and pushes to the mentioned account', async () => {
+    const account = randomUUID();
+    deletedAccounts.push(account);
+    const token = `fcm-${randomUUID()}`;
+    await createDeviceTokenStore(deviceTokenCollection(mongo)).register(token, account, new Date());
+    const event = newEvent('mention.created.v1');
+    event.data.mentioned_id = account;
+
+    await publishEvent(event);
+
+    await vi.waitFor(() => expect(pushed).toEqual([[token]]), { timeout: 10_000, interval: 50 });
+    expect(await notifications().findOne({ _id: event.id })).toMatchObject({
+      recipient_id: account,
+      type: 'mention',
       post_id: event.data.post_id,
     });
     expect(returned).toHaveLength(0);
