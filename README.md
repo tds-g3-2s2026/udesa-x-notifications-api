@@ -1,5 +1,7 @@
 # udesa-x-notifications-api
 
+[![Cobertura](https://codecov.io/gh/tds-g3-2s2026/udesa-x-notifications-api/branch/main/graph/badge.svg)](https://codecov.io/gh/tds-g3-2s2026/udesa-x-notifications-api)
+
 Microservicio de notificaciones: cola, push y emails. Consume los eventos que
 publican `users-api` y `posts-api` por RabbitMQ, manda emails y push por FCM, y guarda el
 historial en MongoDB para el centro de notificaciones in-app (`E4-H3`).
