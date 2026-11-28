@@ -10,6 +10,7 @@ export const NOTIFICATION_TYPES = [
   'like',
   'retweet',
   'reply',
+  'quote',
   'mention',
   'follow',
   'direct_message',

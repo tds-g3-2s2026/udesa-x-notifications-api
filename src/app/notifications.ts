@@ -11,8 +11,8 @@ export interface Notification {
   /** The account that sees it. */
   recipientId: string;
   /**
-   * `follow`, `like`, `retweet`, `reply` or `mention` today. Open on purpose: new kinds only add
-   * values.
+   * `follow`, `like`, `retweet`, `reply`, `quote` or `mention` today. Open on purpose: new kinds
+   * only add values.
    */
   type: string;
   /** Who did it. The handle is copied from the event as it came, and may be null. */

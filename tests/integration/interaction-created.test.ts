@@ -79,6 +79,9 @@ function interactionOn(author: string, kind = 'like'): EventEnvelope {
   if (kind === 'reply') {
     event.data.reply_id = randomUUID();
   }
+  if (kind === 'quote') {
+    event.data.quote_id = randomUUID();
+  }
   return event;
 }
 
@@ -128,6 +131,39 @@ describe('interaction.created against MongoDB', () => {
     await handler(push)(JSON.stringify(reply));
 
     expect(sent[0].message.data).toEqual({ type: 'reply', postId: reply.data.post_id });
+  });
+
+  it('E4-H2.CA1 la cita trae tipo y nombre de usuario', async () => {
+    const author = newAccount();
+    const phone = await newDevice(author);
+    const { push, sent } = fakePush();
+
+    await expect(handler(push)(JSON.stringify(interactionOn(author, 'quote')))).resolves.toBe(
+      'ack'
+    );
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0].tokens).toEqual([phone]);
+    expect(sent[0].message).toMatchObject({
+      title: 'Nueva cita',
+      body: '@juanperez citó tu publicación',
+    });
+  });
+
+  it('E4-H2.CA2 el payload de una cita lleva la cita, que es lo que abre la app', async () => {
+    const author = newAccount();
+    await newDevice(author);
+    const quote = interactionOn(author, 'quote');
+    const { push, sent } = fakePush();
+
+    await handler(push)(JSON.stringify(quote));
+
+    expect(sent[0].message.data).toEqual({ type: 'quote', postId: quote.data.quote_id });
+    expect(await notifications().findOne({ _id: quote.id })).toMatchObject({
+      type: 'quote',
+      post_id: quote.data.quote_id,
+      reply_id: null,
+    });
   });
 
   it('adds the interaction to the notification center of the post author', async () => {

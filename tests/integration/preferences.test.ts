@@ -129,9 +129,9 @@ describe('wantsPush against MongoDB', () => {
 });
 
 describe('PUT /api/notifications/preferences against MongoDB', () => {
-  it('E4-H5.CA1 - saves each of the six types on its own', async () => {
+  it('E4-H5.CA1 - saves each of the seven types on its own', async () => {
     const account = newAccount();
-    expect(NOTIFICATION_TYPES).toHaveLength(6);
+    expect(NOTIFICATION_TYPES).toHaveLength(7);
 
     const turnedOff: NotificationType[] = [];
     for (const type of NOTIFICATION_TYPES) {
@@ -145,7 +145,7 @@ describe('PUT /api/notifications/preferences against MongoDB', () => {
       expect(await (await call('GET', account)).json()).toEqual(expected);
     }
 
-    // Turning one back on leaves the other five off.
+    // Turning one back on leaves the other six off.
     await put(account, { mention: true });
     expect(await (await call('GET', account)).json()).toEqual({
       ...Object.fromEntries(NOTIFICATION_TYPES.map((type) => [type, false])),
@@ -277,6 +277,9 @@ function interactionOn(author: string, kind: string) {
   if (kind === 'reply') {
     event.data.reply_id = randomUUID();
   }
+  if (kind === 'quote') {
+    event.data.quote_id = randomUUID();
+  }
   return event;
 }
 
@@ -308,6 +311,21 @@ describe('preferences before the push against MongoDB', () => {
 
     expect(sent).toHaveLength(1);
     expect(sent[0].tokens).toEqual([phone]);
+  });
+
+  it('E4-H5.CA2 - sends no push for a quote once quotes are turned off', async () => {
+    const account = newAccount();
+    await newDevice(account);
+    await put(account, { quote: false });
+    const { push, sent } = fakePush();
+    const { interaction } = handlers(push);
+
+    await interaction(JSON.stringify(interactionOn(account, 'quote')));
+    expect(sent).toHaveLength(0);
+
+    // Quotes are a type of their own: retweets still arrive.
+    await interaction(JSON.stringify(interactionOn(account, 'retweet')));
+    expect(sent.map((s) => s.message.data.type)).toEqual(['retweet']);
   });
 
   it('turns off only the type the user chose, for every kind of notification', async () => {

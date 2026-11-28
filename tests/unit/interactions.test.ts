@@ -48,6 +48,9 @@ function event(kind = 'like'): EventEnvelope {
   if (kind === 'reply') {
     interaction.data.reply_id = randomUUID();
   }
+  if (kind === 'quote') {
+    interaction.data.quote_id = randomUUID();
+  }
   return interaction;
 }
 
@@ -62,6 +65,7 @@ describe('interaction.created handler', () => {
     ['like', 'Nuevo me gusta', '@juanperez le dio me gusta a tu publicación'],
     ['retweet', 'Nuevo retweet', '@juanperez retuiteó tu publicación'],
     ['reply', 'Nueva respuesta', '@juanperez respondió tu publicación'],
+    ['quote', 'Nueva cita', '@juanperez citó tu publicación'],
   ])('E4-H2.CA1 a %s push says what happened and who did it', async (kind, title, body) => {
     const { handle, deviceTokens, push } = setup();
     const interaction = event(kind);
@@ -87,6 +91,30 @@ describe('interaction.created handler', () => {
       });
     }
   );
+
+  it('E4-H2.CA2 a quote opens the quote, from the push and from the center', async () => {
+    const { handle, notifications, push } = setup();
+    const quote = event('quote');
+
+    await handle(JSON.stringify(quote));
+
+    // The quote shows the comment with the quoted post inside: the quoted post
+    // alone would not say who quoted it.
+    expect(push.send.mock.calls[0][1].data).toEqual({ type: 'quote', postId: quote.data.quote_id });
+    expect(notifications.add).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'quote', postId: quote.data.quote_id, replyId: null })
+    );
+  });
+
+  it('tells of a quote that came without its quote id, opening the quoted post', async () => {
+    const { handle, push } = setup();
+    const quote = event('quote');
+    delete quote.data.quote_id;
+
+    await expect(handle(JSON.stringify(quote))).resolves.toBe('ack');
+
+    expect(push.send.mock.calls[0][1].data).toEqual({ type: 'quote', postId: quote.data.post_id });
+  });
 
   it('adds the entry to the center of the post author, with the reply that answered it', async () => {
     const { handle, notifications } = setup();
@@ -163,7 +191,7 @@ describe('interaction.created handler', () => {
     expect(push.send).not.toHaveBeenCalled();
   });
 
-  it.each(['quote', 'constructor'])(
+  it.each(['bookmark', 'constructor'])(
     'acks a kind it does not know (%s), touching nothing: the contract says to ignore it',
     async (kind) => {
       const { handle, deviceTokens, notifications, push } = setup();
