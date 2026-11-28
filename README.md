@@ -113,12 +113,12 @@ por cursor"), en camelCase:
 }
 ```
 
-- `type`: `follow`, `like`, `retweet` o `reply`. Pueden sumarse otros (las menciones, por
-  ejemplo), así que la app tiene que tolerar uno que no conoce.
+- `type`: `follow`, `like`, `retweet`, `reply`, `quote` o `mention`. Pueden sumarse otros, así que
+  la app tiene que tolerar uno que no conoce.
 - `actor.handle`: tal cual llega en el evento, **sin `@`** (`juanperez`). Puede ser `null` si
   `posts-api` no lo conocía. El texto ("@juanperez te empezó a seguir") lo arma la app.
-- `postId`: el post que recibió la interacción, el que se abre al tocarla. `null` en un
-  `follow`.
+- `postId`: el post que se abre al tocarla: el que recibió la interacción y, en una `quote`, la
+  cita. `null` en un `follow`.
 - `replyId`: solo en `reply`, el post de la respuesta; `null` en los demás.
 - `createdAt`: cuándo pasó, el `time` del evento.
 - `readAt`: `null` mientras no se leyó. Es el indicador de no leída.
@@ -139,10 +139,10 @@ Nada se borra de la base. Cada notificación es un documento de la colección `n
 | -------------- | ---------------------------------------------------------------- |
 | `_id`          | `id` del evento que la generó: el mismo evento no crea dos       |
 | `recipient_id` | cuenta que la ve                                                 |
-| `type`         | `follow`, `like`, `retweet` o `reply`                            |
+| `type`         | `follow`, `like`, `retweet`, `reply`, `quote` o `mention`        |
 | `actor_id`     | cuenta que hizo la acción                                        |
 | `actor_handle` | handle de esa cuenta según el evento, o `null`                   |
-| `post_id`      | post de la interacción; `null` en un `follow`                    |
+| `post_id`      | post que se abre; en una `quote`, la cita. `null` en un `follow` |
 | `reply_id`     | post de la respuesta en un `reply`; `null` en los demás          |
 | `created_at`   | `time` del evento                                                |
 | `read_at`      | cuándo se leyó; `null` mientras no                               |
@@ -190,6 +190,7 @@ responde `200` con el resultado completo:
   "like": true,
   "retweet": true,
   "reply": true,
+  "quote": true,
   "mention": true,
   "follow": true,
   "direct_message": true
@@ -273,10 +274,10 @@ También consume `user.deleted.v1` (campo `user_id`), que no manda mail: borra l
 el servicio guarda de esa cuenta. Está más abajo, en "Cuenta eliminada". Y `follow.created.v1`
 (campos `follower_id`, `follower_handle` y `followee_id`), que publica `posts-api`: avisa por
 push a la cuenta seguida, en "Nuevo seguidor". También de `posts-api` llega
-`interaction.created.v1` (campos `kind`, `actor_id`, `actor_handle`, `post_id`, `post_author_id`
-y `reply_id`): avisa al autor del post de un like, retweet o respuesta, en "Interacción con un
-post". Y `mention.created.v1` (campos `author_id`, `author_handle`, `mentioned_id`, `post_id`,
-`root_post_id` y `content`): avisa a la cuenta mencionada, en "Mención".
+`interaction.created.v1` (campos `kind`, `actor_id`, `actor_handle`, `post_id`, `post_author_id`,
+`reply_id` y `quote_id`): avisa al autor del post de un like, retweet, respuesta o cita, en
+"Interacción con un post". Y `mention.created.v1` (campos `author_id`, `author_handle`,
+`mentioned_id`, `post_id`, `root_post_id` y `content`): avisa a la cuenta mencionada, en "Mención".
 
 ### Topología en RabbitMQ
 
@@ -419,19 +420,22 @@ notificación en el centro del autor del post (`post_author_id`) y le manda un p
 sus dispositivos. Los dos consumidores comparten ese tramo (`src/app/delivery.ts`), que es el único
 lugar que manda push.
 
-| Campo del push | Valor                                                                                             |
-| -------------- | ------------------------------------------------------------------------------------------------- |
-| Título         | `Nuevo me gusta`, `Nuevo retweet` o `Nueva respuesta`, según `kind`                               |
-| Texto          | `@<handle> le dio me gusta a tu publicación`, `retuiteó` o `respondió`; sin handle, `Alguien ...` |
-| `data.type`    | el `kind`: `like`, `retweet` o `reply`                                                            |
-| `data.postId`  | el post que recibió la interacción (en una respuesta, el respondido): la app lo abre (CA.2)       |
+| Campo del push | Valor                                                                                                             |
+| -------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Título         | `Nuevo me gusta`, `Nuevo retweet`, `Nueva respuesta` o `Nueva cita`, según `kind`                                 |
+| Texto          | `@<handle> le dio me gusta a tu publicación`, `retuiteó`, `respondió` o `citó`; sin handle, `Alguien ...`         |
+| `data.type`    | el `kind`: `like`, `retweet`, `reply` o `quote`                                                                   |
+| `data.postId`  | el post que recibió la interacción (en una respuesta, el respondido); en una cita, la cita: la app lo abre (CA.2) |
 
-En el centro queda con `type` igual al `kind`, `post_id` y, en una respuesta, `reply_id`. No
-filtra nada por su cuenta: las interacciones con un post propio o de una cuenta que el autor
-silenció ya no se publican en `posts-api`. Un `kind` que el servicio no conoce (el contrato dice
-que sumar uno no rompe a nadie) se confirma y se loguea, sin notificación ni push. Un mensaje sin
-`id`, `time`, `kind`, `actor_id`, `post_id` o `post_author_id` va a la DLQ; `actor_handle` y
-`reply_id` pueden faltar o ser `null`.
+Una cita abre la cita y no el post citado: ahí se ve el comentario con el citado adentro, y el
+citado solo no dice quién lo citó. Si el evento llega sin `quote_id`, abre el citado.
+
+En el centro queda con `type` igual al `kind`, `post_id` (el mismo post que abre el push) y, en una
+respuesta, `reply_id`. No filtra nada por su cuenta: las interacciones con un post propio o de una
+cuenta que el autor silenció ya no se publican en `posts-api`. Un `kind` que el servicio no conoce
+(el contrato dice que sumar uno no rompe a nadie) se confirma y se loguea, sin notificación ni push.
+Un mensaje sin `id`, `time`, `kind`, `actor_id`, `post_id` o `post_author_id` va a la DLQ;
+`actor_handle`, `reply_id` y `quote_id` pueden faltar o ser `null`.
 
 ### Mención
 
